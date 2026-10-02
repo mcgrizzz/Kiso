@@ -45,3 +45,13 @@ add-on in `checks/`: `python checks/check_runtime.py`.
 | `settings` | `Bridge`, `make_dialog`, `page_html`, and the page shell in `web/` |
 | `ui` | `rebuild_main_window` after a reload changes what goes into pages; `when_ready` waits for a page condition |
 | `logs`, `toggle`, `devreload` | The parts `Addon` is built from |
+
+## AnkiWeb upload helper
+
+`userscripts/ankiweb-upload-helper.user.js` is a Tampermonkey/Violentmonkey script for
+any add-on author. On an add-on's AnkiWeb edit page (`/shared/upload?id=...`) it asks
+once for a link to the add-on's `ankiweb.md` on GitHub, then fills the form from it
+(Title, Tags, Support page, Branches, Description: one `## <field>` section each, the
+value in its first fenced block) and attaches the `.ankiaddon` from the repo's latest
+release, checked against its `.sha256` if there is one. You check it and press Save
+yourself: AnkiWeb doesn't allow automated uploads.
