@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -19,7 +20,7 @@ SKIP_SUFFIXES = {".pyc", ".pyo"}
 
 def files(project: Project):
     yield from (project.root / name for name in project.root_files if (project.root / name).exists())
-    for path in sorted(project.package_dir.rglob("*")):
+    for path in sorted(p for folder in [project.package_dir, *project.include_dirs] for p in folder.rglob("*")):
         if path.is_file() and not SKIP_DIRS & set(path.parts) and path.suffix not in SKIP_SUFFIXES \
                 and not path.name.startswith("."):
             yield path
@@ -45,6 +46,8 @@ def validate(path: Path, project: Project) -> None:
 
 
 def build(project: Project) -> Path:
+    if project.before_build and subprocess.run(project.before_build, shell=True, cwd=project.root).returncode:
+        raise SystemExit(f"before_build failed: {project.before_build}")
     bundle(project, quiet=True)
     out = project.root / "dist" / f"{project.addon_folder}-{project.version}.ankiaddon"
     out.parent.mkdir(exist_ok=True)

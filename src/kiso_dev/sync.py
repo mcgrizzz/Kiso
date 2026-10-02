@@ -53,10 +53,15 @@ def _name_dev_copy(project: Project, dest: Path) -> None:
         path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
 
-def sync(project: Project, dest: Path) -> None:
+def sync(project: Project, dest: Path, include: bool = True) -> None:
+    """With `include`, the include folders are copied too, each only if it differs from the
+    installed one (they're vendored libraries, and Anki loads them once per session)."""
     bundle(project, quiet=True)
     dest.mkdir(parents=True, exist_ok=True)
     _copy_tree(project.package_dir, dest / project.package)
+    for folder in project.include_dirs if include else []:
+        if folder.is_dir() and _stamp(folder) != _stamp(dest / folder.name):
+            _copy_tree(folder, dest / folder.name)
     for name in project.root_files:
         if (project.root / name).exists():
             shutil.copy2(project.root / name, dest / name)
@@ -71,7 +76,8 @@ def _stamp(*folders: Path) -> tuple:
 
 
 def watch(project: Project, dest: Path, every: float = 1.0) -> None:
-    """Sync whenever the add-on's package, its root files or Kiso itself change."""
+    """Sync whenever the add-on's package, its root files or Kiso itself change. The include
+    folders aren't watched: a change there needs an Anki restart, so it goes with the next sync."""
     roots = [project.package_dir, KISO_SOURCE]
     extra = [project.root / n for n in project.root_files if (project.root / n).exists()]
     stamp = (_stamp(*roots), max(p.stat().st_mtime for p in extra))
@@ -81,7 +87,7 @@ def watch(project: Project, dest: Path, every: float = 1.0) -> None:
             current = (_stamp(*roots), max(p.stat().st_mtime for p in extra))
             if current != stamp:
                 stamp = current
-                sync(project, dest)
+                sync(project, dest, include=False)
                 print(f"  synced {time.strftime('%H:%M:%S')}")
     except KeyboardInterrupt:
         print()

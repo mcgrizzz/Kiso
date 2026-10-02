@@ -8,6 +8,8 @@
     root_files = ["__init__.py", "manifest.json", "config.json", "config.md"]
     dev_name = "Keshiki (dev)"           # its name in Anki's add-on list when synced
     kiso = "0.1"                         # the Kiso version it expects (a prefix)
+    include = ["lib"]                    # optional: more folders shipped beside the package
+    before_build = "python tools/vendor.py"   # optional: run in the project folder before a build
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ class Project:
     root_files: List[str] = field(default_factory=list)
     dev_name: str = ""
     kiso: str = ""
+    include: List[str] = field(default_factory=list)
+    before_build: str = ""
 
     @property
     def package_dir(self) -> Path:
@@ -40,6 +44,10 @@ class Project:
     def bundle_dir(self) -> Path:
         """Where Kiso is bundled: inside the inner package, imported relatively."""
         return self.package_dir / "_kiso"
+
+    @property
+    def include_dirs(self) -> List[Path]:
+        return [self.root / name for name in self.include]
 
     @property
     def addon_folder(self) -> str:
@@ -59,5 +67,6 @@ def find(start: Path = None) -> Project:
                 cfg = data["tool"]["kiso"]
                 return Project(root=folder, package=cfg["package"], version=data["project"]["version"],
                                root_files=list(cfg.get("root_files", ["__init__.py", "manifest.json"])),
-                               dev_name=cfg.get("dev_name", ""), kiso=str(cfg.get("kiso", "")))
+                               dev_name=cfg.get("dev_name", ""), kiso=str(cfg.get("kiso", "")),
+                               include=list(cfg.get("include", [])), before_build=cfg.get("before_build", ""))
     raise SystemExit(f"No pyproject.toml with a [tool.kiso] table at or above {here}")

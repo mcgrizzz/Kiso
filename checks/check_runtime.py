@@ -1,11 +1,12 @@
 """Real-Anki check of Kiso's runtime helpers: debounced timers, waiting for a page,
-and rebuilding the main window."""
+rebuilding the main window, and a reload that waits for a stop finishing later."""
 
 # isort: off
 # kiso_dev.harness sets Qt up for offscreen use before aqt loads, so it comes first.
 from kiso_dev.harness import pump, run, until
 
 import logging
+import threading
 import time
 
 import aqt
@@ -56,6 +57,51 @@ def check(app, shots, base):
     finally:
         gui_hooks.webview_will_set_content.remove(on_content)
     print("PASS: rebuild_main_window reloads the toolbar and the current screen.")
+
+    check_reload(app)
+
+
+def check_reload(app):
+    from kisocheck.fixture._kiso.addon import Addon
+
+    mw = aqt.mw
+    starts = []
+
+    def start():
+        starts.append(1)
+        return len(starts)
+
+    def late_stop(_feature):
+        # Like a server whose last request needs the main thread to finish:
+        # stopped only once Anki has run this.
+        stopped = threading.Event()
+        threading.Thread(target=lambda: mw.taskman.run_on_main(stopped.set)).start()
+        return stopped.is_set
+
+    addon = Addon("kisocheck", inner="fixture", start=start, stop=late_stop)
+    addon.start()
+    results = []
+    message = addon.reload(then=results.append)
+    assert message.startswith("reloading once"), message
+    assert addon.reload().startswith("a reload is already waiting")
+    assert len(starts) == 1   # the old feature is still stopping
+    until(app, lambda: results, 5, "the reload never finished")
+    assert results[0].startswith("reloaded") and len(starts) == 2, (results, starts)
+    print("PASS: a reload waits for a stop that needs the main thread, without blocking it.")
+
+    never = Addon("kisocheck", inner="fixture", start=start, stop=lambda _f: lambda: False)
+    never.stop_timeout = 0.3
+    never.start()
+    results = []
+    never.reload(then=results.append)
+    until(app, lambda: results, 5, "the reload never gave up")
+    assert "didn't stop" in results[0] and len(starts) == 3, (results, starts)
+    print("PASS: a reload gives up when the old feature doesn't stop, and starts nothing.")
+
+    now = Addon("kisocheck", inner="fixture", start=start)
+    now.start()
+    assert now.reload().startswith("reloaded") and len(starts) == 5
+    print("PASS: a feature that stops at once reloads at once.")
 
 
 if __name__ == "__main__":

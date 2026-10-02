@@ -1,16 +1,19 @@
 import json
+import os
+import sys
 import zipfile
 
 import pytest
 
 import kiso
-from kiso_dev import build, bundle, cli, project, release
+from kiso_dev import build, bundle, cli, project, release, sync
 
 
-def make_addon(tmp_path, kiso_pin=""):
+def make_addon(tmp_path, kiso_pin="", extra=""):
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nversion = "1.2.3"\n[tool.kiso]\npackage = "demo"\n'
-        f'root_files = ["__init__.py", "manifest.json", "config.json"]\ndev_name = "Demo (dev)"\nkiso = "{kiso_pin}"\n')
+        f'root_files = ["__init__.py", "manifest.json", "config.json"]\ndev_name = "Demo (dev)"\nkiso = "{kiso_pin}"\n'
+        + extra)
     (tmp_path / "manifest.json").write_text(json.dumps({"package": "demo", "name": "Demo"}))
     (tmp_path / "config.json").write_text("{}")
     (tmp_path / "__init__.py").write_text("from .demo import thing\n")
@@ -74,3 +77,61 @@ def test_a_release_tag_must_be_the_projects_version(tmp_path):
     for bad in ("1.2.3", "v1.2", "v01.2.3", "v1.2.3-rc1"):
         with pytest.raises(SystemExit, match="isn't a version"):
             release.check_tag(proj, bad)
+
+
+def make_vendoring_addon(tmp_path):
+    """An add-on whose before_build vendors a library into lib/, shipped through include."""
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "vendor.py").write_text(
+        "from pathlib import Path\n"
+        "Path('lib/shared').mkdir(parents=True, exist_ok=True)\n"
+        "Path('lib/shared/vendored.py').write_text('VERSION = 1\\n')\n")
+    return make_addon(tmp_path, extra=f"include = [\"lib\"]\nbefore_build = '\"{sys.executable}\" vendor.py'\n")
+
+
+def test_include_and_before_build_come_from_pyproject(tmp_path):
+    proj = make_vendoring_addon(tmp_path / "vendoring")
+    assert proj.include == ["lib"] and proj.include_dirs == [tmp_path / "vendoring" / "lib"]
+    assert proj.before_build.endswith("vendor.py")
+    plain = make_addon(tmp_path)
+    assert plain.include == [] and plain.before_build == ""
+
+
+def test_build_runs_before_build_then_packs_the_included_folders(tmp_path):
+    proj = make_vendoring_addon(tmp_path)
+    names = zipfile.ZipFile(build.build(proj)).namelist()
+    assert "lib/shared/vendored.py" in names and "demo/_kiso/hooks.py" in names
+
+
+def test_a_failing_before_build_stops_the_build(tmp_path):
+    proj = make_addon(tmp_path, extra=f"before_build = '\"{sys.executable}\" -c \"raise SystemExit(3)\"'\n")
+    with pytest.raises(SystemExit, match="before_build failed"):
+        build.build(proj)
+    assert not (tmp_path / "dist" / "demo-1.2.3.ankiaddon").exists()
+
+
+def test_sync_copies_an_included_folder_only_when_it_changed(tmp_path):
+    proj = make_vendoring_addon(tmp_path / "src")
+    build.build(proj)   # vendors lib/
+    dest = tmp_path / "addons21" / "demo"
+    sync.sync(proj, dest)
+    assert (dest / "lib" / "shared" / "vendored.py").read_text() == "VERSION = 1\n"
+    first = (dest / "lib").stat().st_ino
+    sync.sync(proj, dest)
+    assert (dest / "lib").stat().st_ino == first          # unchanged: not copied again
+    src = proj.root / "lib" / "shared" / "vendored.py"
+    src.write_text("VERSION = 2\n")
+    os.utime(src, (src.stat().st_atime, src.stat().st_mtime + 10))
+    sync.sync(proj, dest, include=False)
+    assert (dest / "lib" / "shared" / "vendored.py").read_text() == "VERSION = 1\n"   # what --watch does
+    sync.sync(proj, dest)
+    assert (dest / "lib" / "shared" / "vendored.py").read_text() == "VERSION = 2\n"
+
+
+def test_the_harness_installs_the_included_folders_too(tmp_path):
+    from kiso_dev import harness
+
+    proj = make_vendoring_addon(tmp_path / "src")
+    build.build(proj)
+    dest = harness.install_copy(proj, tmp_path / "addons21")
+    assert (dest / "lib" / "shared" / "vendored.py").is_file() and (dest / "demo" / "__init__.py").is_file()

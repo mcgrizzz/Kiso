@@ -17,7 +17,13 @@ package = "myaddon"                 # the inner package, next to the root __init
 root_files = ["__init__.py", "manifest.json", "config.json", "config.md"]
 dev_name = "My Add-on (dev)"        # its name in Anki's add-on list when synced
 kiso = "0.1"                        # the Kiso version it expects
+include = ["lib"]                   # optional: more folders shipped beside the package (vendored libraries)
+before_build = "python tools/vendor.py"   # optional: a command `kiso build` runs first, in the project folder
 ```
+
+`build`, `sync` and the real-Anki harness copy the `include` folders too. `sync` copies one
+only when it differs from the installed copy, and `sync --watch` leaves them alone: Anki loads
+them once per session, so a change there needs a restart anyway.
 
 Install Kiso in the add-on's dev environment (`pip install -e ../kiso`), add
 `/myaddon/_kiso/` to `.gitignore`, and import it relatively:

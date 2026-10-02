@@ -7,10 +7,15 @@
 
 - `start()` builds the add-on's running part (its "feature"), and `stop(feature)`
   takes it down; reload() runs stop, purges the inner package, runs start again.
+  A feature whose stop finishes later (a server thread that must let its last
+  requests through, which may need the main thread) returns a check from stop,
+  `done() -> bool`: the reload then waits for it without blocking Anki.
 - `settings` opens the settings page from the Tools menu and the add-on's Config
   button. If it raises, Anki's raw JSON editor opens instead.
 - `on_config(addon)` runs at profile open and when the JSON editor saves.
 - `on_toggle(addon, enabled)` runs when the add-on is turned off or on in Tools > Add-ons.
+- `web_exports` is the pattern of files Anki's media server may serve from the add-on. Pass a
+  function that reads it from the inner package, and a reload registers the new code's pattern.
 
 Every callback is guarded: a failure is logged to the add-on's log file and the
 rest keeps working. Callbacks should import the add-on's own modules inside
@@ -20,9 +25,10 @@ the function, so a reload's purge brings in the new code.
 from __future__ import annotations
 
 import logging
+import time
 import traceback
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
 from . import devreload
 from .hooks import guard
@@ -37,7 +43,7 @@ class Addon:
                  on_config: Optional[Callable[["Addon"], None]] = None,
                  on_toggle: Optional[Callable[["Addon", bool], None]] = None,
                  after_reload: Optional[Callable[["Addon"], None]] = None,
-                 web_exports: Optional[str] = None, log_also: tuple = ()):
+                 web_exports: Union[str, Callable[[], str], None] = None, log_also: tuple = ()):
         from aqt import mw
 
         self.mw = mw
@@ -51,6 +57,8 @@ class Addon:
         self._web_exports, self._log_also = web_exports, log_also
         self.feature: Any = None
         self.watch: Optional[devreload.DevWatch] = None
+        self.stop_timeout = 30.0   # seconds a reload waits for a stop that finishes later
+        self._waiting: Any = None  # the timer of a reload waiting for the old feature to stop
 
     # -- set up ----------------------------------------------------------
 
@@ -61,8 +69,7 @@ class Addon:
 
         mw = self.mw
         self.start()
-        if self._web_exports:
-            mw.addonManager.setWebExports(self.module, self._web_exports)
+        self._export_web()
         if self._settings:
             # Registered at import time so it works even if the feature failed to start.
             mw.addonManager.setConfigAction(self.module, self.open_settings)
@@ -78,6 +85,11 @@ class Addon:
             watch_own_toggle(mw.addonManager, self.module,
                              guard(lambda enabled: self._on_toggle(self, enabled), self.log, "Add-on switch"))
 
+    def _export_web(self) -> None:
+        pattern = self._web_exports() if callable(self._web_exports) else self._web_exports
+        if pattern:
+            self.mw.addonManager.setWebExports(self.module, pattern)
+
     def start(self) -> None:
         try:
             self.feature = self._start()
@@ -85,13 +97,16 @@ class Addon:
             self.feature = None
             self.log.exception("%s failed to start", self.module)
 
-    def stop(self) -> None:
+    def stop(self) -> Optional[Callable[[], bool]]:
+        """Take the feature down. Returns its check when its stop finishes later."""
+        done = None
         if self.feature is not None:
             try:
-                self._stop(self.feature)
+                done = self._stop(self.feature)
             except Exception:
                 self.log.exception("%s failed to stop", self.module)
         self.feature = None
+        return done if callable(done) else None
 
     def open_settings(self, *_args) -> Optional[bool]:
         try:
@@ -118,13 +133,51 @@ class Addon:
 
     # -- reload ------------------------------------------------------------
 
-    def reload(self) -> str:
+    def reload(self, then: Optional[Callable[[str], None]] = None) -> str:
         """Run the code now on disk without restarting Anki. Only the inner package
-        is purged (Kiso's bundled copy with it); the root __init__ needs a restart."""
-        self.stop()
+        is purged (Kiso's bundled copy with it); the root __init__ needs a restart.
+
+        Returns the result. When the old feature's stop finishes later, the reload
+        waits for it on a timer (Anki stays responsive, so the work it waits on can
+        finish), returns at once saying so, and hands the result to `then` (else the
+        log) when it ends."""
+        if self._waiting is not None:
+            return "a reload is already waiting for the old code to stop"
+        done = self.stop()
+        if done is None or done():
+            message = self._load()
+            if then:
+                then(message)
+            return message
+        from aqt.qt import QTimer
+
+        done = guard(done, self.log, "Stop check")   # a failing check counts as not stopped yet
+        deadline = time.monotonic() + self.stop_timeout
+        report = then or (lambda message: self.log.info("Reload: %s", message))
+
+        def tick() -> None:
+            if done():
+                message = self._load()
+            elif time.monotonic() > deadline:
+                message = (f"reload failed: the old code didn't stop within {self.stop_timeout:g} s; "
+                           "restart Anki")
+            else:
+                return
+            self._waiting.stop()
+            self._waiting.deleteLater()
+            self._waiting = None
+            report(message)
+
+        self._waiting = QTimer(self.mw)
+        self._waiting.timeout.connect(guard(tick, self.log, "Reload"))
+        self._waiting.start(50)
+        return "reloading once the old code has stopped"
+
+    def _load(self) -> str:
         purged = devreload.purge(f"{self.module}.{self.inner}")
         try:
             self.start()
+            self._export_web()   # the new code may serve different files
             self._config()
             if self._after_reload:
                 self._after_reload(self)
@@ -133,7 +186,9 @@ class Addon:
         return f"reloaded {purged} modules"
 
     def _reload_from_watch(self) -> None:
-        message = self.reload()
+        self.reload(then=self._report)
+
+    def _report(self, message: str) -> None:
         self.log.info("Dev watch: %s", message)
         from aqt.utils import tooltip
 

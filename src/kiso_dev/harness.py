@@ -80,7 +80,8 @@ def install_copy(project, addons: Path) -> Path:
         src = project.root / name
         if src.exists():
             shutil.copy(src, dest / name)
-    shutil.copytree(project.package_dir, dest / project.package, ignore=shutil.ignore_patterns("__pycache__"))
+    for folder in [project.package_dir, *project.include_dirs]:
+        shutil.copytree(folder, dest / folder.name, ignore=shutil.ignore_patterns("__pycache__"))
     return dest
 
 
