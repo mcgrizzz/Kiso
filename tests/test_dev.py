@@ -119,6 +119,10 @@ def test_sync_copies_an_included_folder_only_when_it_changed(tmp_path):
     first = (dest / "lib").stat().st_ino
     sync.sync(proj, dest)
     assert (dest / "lib").stat().st_ino == first          # unchanged: not copied again
+    for p in (dest / "lib").rglob("*"):                   # a Windows drive from WSL keeps whole seconds
+        os.utime(p, (int(p.stat().st_mtime), int(p.stat().st_mtime)))
+    sync.sync(proj, dest)
+    assert (dest / "lib").stat().st_ino == first
     src = proj.root / "lib" / "shared" / "vendored.py"
     src.write_text("VERSION = 2\n")
     os.utime(src, (src.stat().st_atime, src.stat().st_mtime + 10))

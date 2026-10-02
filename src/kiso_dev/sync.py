@@ -60,13 +60,19 @@ def sync(project: Project, dest: Path, include: bool = True) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     _copy_tree(project.package_dir, dest / project.package)
     for folder in project.include_dirs if include else []:
-        if folder.is_dir() and _stamp(folder) != _stamp(dest / folder.name):
+        if folder.is_dir() and not _same(_stamp(folder), _stamp(dest / folder.name)):
             _copy_tree(folder, dest / folder.name)
     for name in project.root_files:
         if (project.root / name).exists():
             shutil.copy2(project.root / name, dest / name)
     (dest / "DEV_WATCH").touch()
     _name_dev_copy(project, dest)
+
+
+def _same(a: tuple, b: tuple) -> bool:
+    """Stamps of a folder and its copy match. Some drives keep coarser times than the
+    source (whole seconds on a Windows drive from WSL, two seconds on FAT)."""
+    return a[0] == b[0] and abs(a[1] - b[1]) < 2
 
 
 def _stamp(*folders: Path) -> tuple:
