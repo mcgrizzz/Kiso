@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from . import vendor
 from .bundle import SOURCE as KISO_SOURCE
 from .bundle import bundle
 from .project import Project
@@ -57,6 +58,7 @@ def sync(project: Project, dest: Path, include: bool = True) -> None:
     """With `include`, the include folders are copied too, each only if it differs from the
     installed one (they're vendored libraries, and Anki loads them once per session)."""
     bundle(project, quiet=True)
+    vendor.ensure(project)
     dest.mkdir(parents=True, exist_ok=True)
     _copy_tree(project.package_dir, dest / project.package)
     for folder in project.include_dirs if include else []:

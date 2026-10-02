@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -63,7 +64,7 @@ def test_build_packs_the_addon_with_kiso_and_without_local_state(tmp_path):
 def test_info_names_the_build_file(tmp_path, monkeypatch, capsys):
     proj = make_addon(tmp_path)
     assert release.info(proj) == {"folder": "demo", "package": "demo", "version": "1.2.3",
-                                  "artifact": "dist/demo-1.2.3.ankiaddon"}
+                                  "artifact": "dist/demo-1.2.3.ankiaddon", "vendor": ""}
     monkeypatch.chdir(tmp_path)
     cli.main(["info"])
     assert "version=1.2.3\nartifact=dist/demo-1.2.3.ankiaddon" in capsys.readouterr().out
@@ -139,3 +140,25 @@ def test_the_harness_installs_the_included_folders_too(tmp_path):
     build.build(proj)
     dest = harness.install_copy(proj, tmp_path / "addons21")
     assert (dest / "lib" / "shared" / "vendored.py").is_file() and (dest / "demo" / "__init__.py").is_file()
+
+
+def test_strict_mode_fails_only_on_the_add_ons_own_deprecated_calls(monkeypatch):
+    import anki._legacy
+
+    from kiso_dev import notices
+
+    monkeypatch.setattr(notices, "notices", [])
+    notices.install(lambda: "here")
+    warn = anki._legacy.print_deprecation_warning
+
+    def deprecated():   # stands for an Anki API that prints a notice for its caller
+        warn("old() is deprecated")
+
+    deprecated()   # the add-on's call
+    inside = {"deprecated": deprecated}
+    anki_dir = Path(anki._legacy.__file__).parent
+    exec(compile("def legacy():\n    deprecated()\n", str(anki_dir / "importing" / "anki2.py"), "exec"), inside)
+    inside["legacy"]()   # Anki's own older code making the call
+    assert [n[2] for n in notices.notices] == [False, True]
+    assert notices.failing() == notices.notices[:1]
+    assert notices.describe(notices.notices[1]) == "here: old() is deprecated (raised inside Anki)"

@@ -1,6 +1,6 @@
 """What a release needs from the project: its file names, and a tag that matches its version.
 
-    kiso info              folder=..., package=..., version=..., artifact=dist/<folder>-<version>.ankiaddon
+    kiso info              folder=..., package=..., version=..., artifact=dist/<folder>-<version>.ankiaddon, vendor=<lockfile>
     kiso check-tag v1.2.3  stops unless the tag is v<version> (pyproject.toml's [project] version)
 
 `kiso info` prints key=value lines, so a GitHub Actions step can append them to $GITHUB_OUTPUT.
@@ -22,6 +22,7 @@ def info(project: Project) -> Dict[str, str]:
         "package": project.package,
         "version": project.version,
         "artifact": f"dist/{project.addon_folder}-{project.version}.ankiaddon",
+        "vendor": project.vendor,
     }
 
 

@@ -32,7 +32,7 @@ import aqt  # noqa: E402
 from aqt.profiles import ProfileManager  # noqa: E402
 from aqt.qt import QCoreApplication, QEvent, sip  # noqa: E402
 
-from . import notices  # noqa: E402
+from . import notices, vendor  # noqa: E402
 from .bundle import bundle  # noqa: E402
 from .project import find  # noqa: E402
 
@@ -74,6 +74,7 @@ def addon():
 
 def install_copy(project, addons: Path) -> Path:
     bundle(project, quiet=True)
+    vendor.ensure(project)
     dest = addons / project.addon_folder
     dest.mkdir(parents=True)
     for name in project.root_files:
@@ -128,7 +129,7 @@ def run(check, description, profile="KisoCheck", size=(1280, 800)):
                 until(app, lambda: sip.isdeleted(aqt.mw), 30)
             sys.excepthook = original_hook
     print("PASS: Anki shut down cleanly.", flush=True)
-    for where, msg in notices.notices:
-        print(f"Anki deprecation notice ({where}): {msg}", flush=True)
-    if notices.notices and notices.STRICT:
+    for notice in notices.notices:
+        print("Anki deprecation notice " + notices.describe(notice), flush=True)
+    if notices.failing() and notices.STRICT:
         sys.exit(1)

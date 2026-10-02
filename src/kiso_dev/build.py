@@ -11,6 +11,7 @@ import subprocess
 import zipfile
 from pathlib import Path
 
+from . import vendor
 from .bundle import bundle
 from .project import Project
 
@@ -33,9 +34,14 @@ def validate(path: Path, project: Project) -> None:
         bad = zf.testzip()
         if bad:
             raise SystemExit(f"Corrupt entry in {path.name}: {bad}")
+        # Compiled files: Anki installs one archive on every platform.
         problems = [n for n in names if n == "meta.json" or "__pycache__" in n or ".." in n or "\\" in n
-                    or n.endswith((".pyc", ".pyo"))]
+                    or n.endswith((".pyc", ".pyo") + vendor.COMPILED)]
         missing = [f for f in ("__init__.py", "manifest.json") if f not in names]
+        if project.vendor:
+            missing += [f for f in ("lib/vendor_manifest.json",) if f not in names]
+            if not any(n.startswith("lib/shared/") and n.endswith(".py") for n in names):
+                missing.append("lib/shared/ (no vendored Python)")
         if not any(n.startswith(f"{project.package}/_kiso/") for n in names):
             missing.append(f"{project.package}/_kiso/")
         for name in names:
@@ -45,7 +51,9 @@ def validate(path: Path, project: Project) -> None:
         raise SystemExit(f"{path.name}: unexpected {problems or ''} missing {missing or ''}".strip())
 
 
-def build(project: Project) -> Path:
+def build(project: Project, offline: bool = False) -> Path:
+    if project.vendor:
+        vendor.vendor(project, offline=offline)   # afresh: a release ships exactly the lockfile
     if project.before_build and subprocess.run(project.before_build, shell=True, cwd=project.root).returncode:
         raise SystemExit(f"before_build failed: {project.before_build}")
     bundle(project, quiet=True)

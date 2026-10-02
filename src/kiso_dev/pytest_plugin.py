@@ -16,21 +16,24 @@ def pytest_configure(config):
     except ImportError:
         return
     notices.install()
+    from .bundle import bundle
+    from .project import find
+    from .vendor import ensure
     try:
-        from .bundle import bundle
-        from .project import find
-        bundle(find(config.rootpath), quiet=True)
+        project = find(config.rootpath)
     except SystemExit:
-        pass   # not an add-on project (Kiso's own tests)
+        return   # not an add-on project (Kiso's own tests)
+    bundle(project, quiet=True)
+    ensure(project)   # the add-on's vendored libraries, if lib/shared isn't current
 
 
 def pytest_terminal_summary(terminalreporter):
     if notices.notices:
         terminalreporter.section("Anki deprecation notices")
-        for test, msg in notices.notices:
-            terminalreporter.line(f"{test}: {msg}")
+        for notice in notices.notices:
+            terminalreporter.line(notices.describe(notice))
 
 
 def pytest_sessionfinish(session):
-    if notices.notices and notices.STRICT:
+    if notices.failing() and notices.STRICT:
         session.exitstatus = 1

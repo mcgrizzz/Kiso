@@ -1,7 +1,8 @@
 name: Add-on CI
 
 # For an Anki add-on built on Kiso: lint, tests (on the newest Anki, and on the oldest the
-# add-on supports when floor-anki is given), the add-on's real-Anki checks, and the build.
+# add-on supports when floor-anki is given), the add-on's real-Anki checks, the build, and an
+# audit of its vendored libraries when [tool.kiso] has a vendor lockfile.
 #
 #   jobs:
 #     ci:
@@ -39,6 +40,10 @@ on:
         description: The command for real-Anki checks, e.g. tools/qt_checks.sh. Empty skips them.
         type: string
         default: ""
+      test-packages:
+        description: More packages the tests and checks need, space-separated, e.g. "httpx hypothesis".
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -63,6 +68,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           anki: ${{ matrix.anki }}
+      - name: Test packages
+        if: inputs.test-packages != ''
+        env:
+          PACKAGES: ${{ inputs.test-packages }}
+        run: python -m pip install -q $PACKAGES
       - name: Lint
         if: inputs.lint
         run: ruff check .
@@ -83,8 +93,31 @@ jobs:
       - uses: mcgrizzz/Kiso@main
         with:
           python-version: ${{ inputs.python-version }}
+      - name: Test packages
+        if: inputs.test-packages != ''
+        env:
+          PACKAGES: ${{ inputs.test-packages }}
+        run: python -m pip install -q $PACKAGES
       - name: Checks
         run: ${{ inputs.qt-checks }}
+
+  audit:
+    name: Audit vendored libraries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: mcgrizzz/Kiso@main
+        with:
+          python-version: ${{ inputs.python-version }}
+          anki: none
+      - name: pip-audit on the vendor lockfile (advisories in audit_ignore are skipped)
+        run: |
+          if [ -z "$(kiso info | sed -n 's/^vendor=//p')" ]; then echo "Nothing vendored."; exit 0; fi
+          python -m pip install -q pip-audit
+          kiso audit
 
   build:
     name: Build
