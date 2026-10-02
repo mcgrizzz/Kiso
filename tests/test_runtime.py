@@ -3,7 +3,9 @@ import logging
 import sys
 from types import SimpleNamespace
 
-from kiso import config, devreload, hooks, settings, toggle
+import aqt.qt
+
+from kiso import config, devreload, hooks, settings, toggle, ui
 
 
 class FakeHook(list):
@@ -116,3 +118,35 @@ def test_dev_watch_waits_for_a_quiet_tick(tmp_path):
     assert fired == []
     watch.tick()                 # unchanged since: reload
     assert fired == [1]
+
+
+def test_when_ready_asks_until_the_page_says_yes(monkeypatch):
+    monkeypatch.setattr(aqt.qt, "QTimer", SimpleNamespace(singleShot=lambda ms, fn: fn()))
+    answers = iter([False, None, True])
+    asked, done = [], []
+    web = SimpleNamespace(evalWithCallback=lambda js, cb: (asked.append(js), cb(next(answers))))
+    ui.when_ready(web, "typeof saveNow === 'function'", lambda: done.append(1))
+    assert len(asked) == 3 and done == [1]
+
+    gave_up, wanted = [], [True]
+
+    def answer(js, cb):
+        wanted[0] = False             # the window closed while asking
+        cb(True)
+    ui.when_ready(SimpleNamespace(evalWithCallback=answer), "1", lambda: done.append(2),
+                  still_wanted=lambda: wanted[0])
+    assert done == [1]
+
+    ui.when_ready(SimpleNamespace(evalWithCallback=lambda js, cb: cb(False)), "0", lambda: done.append(3),
+                  timeout=0, on_timeout=lambda: gave_up.append(1))
+    assert gave_up == [1] and done == [1]
+
+
+def test_rebuild_reloads_the_toolbar_and_a_main_screen_only():
+    calls = []
+    mw = SimpleNamespace(state="overview", toolbar=SimpleNamespace(draw=lambda: calls.append("toolbar")),
+                         moveToState=lambda state: calls.append(state))
+    ui.rebuild_main_window(mw)
+    mw.state = "profileManager"
+    ui.rebuild_main_window(mw)
+    assert calls == ["toolbar", "overview", "toolbar"]

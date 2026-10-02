@@ -32,14 +32,16 @@ kiso build             # dist/<folder>-<version>.ankiaddon
 Real-Anki checks use `kiso_dev.harness` (offscreen Anki, throwaway profile,
 the add-on installed through its real root `__init__.py`). The pytest plugin
 lists Anki's printed deprecation notices after each run and fails on them with
-`KISO_STRICT_ANKI_NOTICES=1`.
+`KISO_STRICT_ANKI_NOTICES=1`. Kiso's own real-Anki check runs on a stand-in
+add-on in `checks/`: `python checks/check_runtime.py`.
 
 ## What's in it
 
 | Module | For |
 | --- | --- |
 | `addon` | `Addon`: config action, Tools menu, log file, add-on switch, dev watch, `reload()` |
-| `hooks` | `guard`, `Subscriptions`: hook callbacks that log instead of raising and come off on reload |
+| `hooks` | `guard`, `Subscriptions`: hook callbacks and timers (repeating, debounced) that log instead of raising and come off on reload |
 | `config` | `migrate`, `fill`, `load`: defaults and versioned migration steps |
 | `settings` | `Bridge`, `make_dialog`, `page_html`, and the page shell in `web/` |
+| `ui` | `rebuild_main_window` after a reload changes what goes into pages; `when_ready` waits for a page condition |
 | `logs`, `toggle`, `devreload` | The parts `Addon` is built from |

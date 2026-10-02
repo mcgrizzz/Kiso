@@ -45,6 +45,16 @@ class Subscriptions:
         self._timers.append(timer)
         return timer
 
+    def debounce(self, parent: Any, fn: Callable, what: str = "") -> "Debounce":
+        """A single-shot QTimer calling guarded `fn`, not started: see Debounce."""
+        from aqt.qt import QTimer
+
+        timer = QTimer(parent)
+        timer.setSingleShot(True)
+        timer.timeout.connect(guard(fn, self.log, what))
+        self._timers.append(timer)
+        return Debounce(timer)
+
     def remove_all(self) -> None:
         for hook, fn in self._hooks:
             try:
@@ -56,3 +66,26 @@ class Subscriptions:
             timer.stop()
             timer.deleteLater()
         self._timers = []
+
+
+class Debounce:
+    """One call after a burst goes quiet: each restart() pushes the call back.
+
+        scan = subs.debounce(mw, flush, "Change scan")
+        scan.restart(0.5)            # on every change; flush runs 0.5 s after the last
+        if not scan.pending:         # or: once per event-loop turn, however many events
+            scan.restart(0)
+    """
+
+    def __init__(self, timer: Any):
+        self.timer = timer
+
+    def restart(self, seconds: float) -> None:
+        self.timer.start(max(0, round(seconds * 1000)))
+
+    def cancel(self) -> None:
+        self.timer.stop()
+
+    @property
+    def pending(self) -> bool:
+        return self.timer.isActive()

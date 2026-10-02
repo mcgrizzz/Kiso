@@ -1,0 +1,9 @@
+# A stand-in add-on for Kiso's real-Anki checks: `python checks/check_runtime.py`.
+[project]
+name = "kisocheck"
+version = "0.0.0"
+
+[tool.kiso]
+package = "fixture"
+root_files = ["__init__.py", "manifest.json"]
+kiso = "0.1"
