@@ -125,7 +125,12 @@ function renderNav() {
 function render() {
   renderNav();
   if (Kiso.options.beforeRender) Kiso.options.beforeRender(page);
-  document.getElementById("main").replaceChildren(...[pageOf(page).render()].flat(Infinity).filter(Boolean));
+  const main = document.getElementById("main");
+  // Redrawing the same page keeps its scroll position; another page starts at the top.
+  const top = main.dataset.page === page ? main.scrollTop : 0;
+  main.replaceChildren(...[pageOf(page).render()].flat(Infinity).filter(Boolean));
+  main.dataset.page = page;
+  main.scrollTop = top;
   if (Kiso.options.afterRender) Kiso.options.afterRender(page);
 }
 
