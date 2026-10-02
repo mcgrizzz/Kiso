@@ -9,7 +9,7 @@
    Globals the add-on's pages use: S (the state from op_state), saved and draft
    (the config as saved and as edited), page (the current page id), and the
    helpers below: call, h, icon, ICONS, clone, same, changed, render, pageHead,
-   radio, slider, openModal, closeModal, confirmDialog. */
+   radio, slider, help, disclosure, openModal, closeModal, confirmDialog. */
 
 let S = null;
 let saved = null;
@@ -38,7 +38,7 @@ function h(tag, attrs, ...kids) {
     else if (k in el && k !== "list" && k !== "form") el[k] = v;
     else el.setAttribute(k, v === true ? "" : v);
   }
-  for (const kid of kids.flat()) {
+  for (const kid of kids.flat(Infinity)) {   // children may come in nested arrays
     if (kid === null || kid === undefined || kid === false) continue;
     el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
   }
@@ -64,6 +64,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 //          slice(cfg) -> the part of the config it edits (for its unsaved dot),
 //          revert(draft)? (Revert this page: put its part of the draft back as saved),
 //          restore(draft)? (Restore defaults; none when there's nothing sensible to restore),
+//          restoreLabel? (the Restore button's text, naming what it resets),
 //          restoreTitle? (what Restore does, as a tooltip)}
 
 const pageOf = (id) => Kiso.pages.find((p) => p.id === id);
@@ -80,7 +81,7 @@ function pageActions() {
       onclick: () => { p.revert(draft); changed(true); } }, "Revert this page"),
     wouldRestore && h("button", { type: "button", className: "quiet", id: "restorePage",
       title: p.restoreTitle || "Back to this page's defaults. Nothing changes until Save.",
-      onclick: () => { restore(draft); changed(true); } }, "Restore defaults"));
+      onclick: () => { restore(draft); changed(true); } }, p.restoreLabel || "Restore defaults"));
 }
 
 function pageHead(title, lead) {
@@ -97,8 +98,9 @@ function changed(rerender) {
   document.getElementById("save").disabled = !dirty;
   document.getElementById("cancel").disabled = !dirty;
   const pages = `${dirtyPages || 1} page${dirtyPages > 1 ? "s" : ""}`;
-  document.getElementById("status").textContent = dirty
-    ? (Kiso.options.unsaved ? Kiso.options.unsaved(pages) : `Unsaved changes on ${pages}`) : "";
+  const status = document.getElementById("status");
+  status.textContent = dirty ? (Kiso.options.unsaved ? Kiso.options.unsaved(pages) : `Unsaved changes on ${pages}`) : "";
+  status.classList.toggle("dirty", dirty);
   document.getElementById("errors").textContent = "";
   call("dirty", dirty);
   if (rerender) render();
@@ -147,6 +149,29 @@ function slider(label, value, min, max, unit, set) {
       h("input", { type: "range", min, max, value, "aria-label": label,
                    oninput: (e) => { set(Number(e.target.value)); out.textContent = e.target.value + unit; changed(); } }),
       out));
+}
+
+// Short help, with the rest a click away: the (i) button shows or hides the longer text.
+// What's open stays open when the page redraws.
+const openHelp = new Set();
+function help(short, more) {
+  if (!more) return h("div", { className: "help-block" }, h("p", { className: "help" }, short));
+  const extra = h("p", { className: "help more", hidden: !openHelp.has(more) }, more);
+  const button = h("button", { type: "button", className: "info", title: "More about this", "aria-label": "More about this",
+                               "aria-expanded": String(openHelp.has(more)), onclick: () => {
+    extra.hidden = !extra.hidden;
+    if (extra.hidden) openHelp.delete(more); else openHelp.add(more);
+    button.setAttribute("aria-expanded", String(!extra.hidden));
+  } }, "i");
+  return h("div", { className: "help-block" }, h("p", { className: "help" }, short, " ", button), extra);
+}
+
+// A section that opens and closes (<details>), remembered by its key across redraws.
+const sections = new Map();
+function disclosure(key, summary, kids, startOpen = false) {
+  const el = h("details", { className: "disclosure", open: sections.has(key) ? sections.get(key) : startOpen,
+                            ontoggle: () => sections.set(key, el.open) }, h("summary", {}, summary), kids);
+  return el;
 }
 
 // Modals stack: a confirmation can open over a dialog, and closing takes off the top one.

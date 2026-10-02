@@ -38,7 +38,9 @@ button, input, select { font: inherit; }
         stroke-linecap: round; stroke-linejoin: round; }
 
 /* Page */
-main { overflow-y: auto; padding: 18px 22px 28px; }
+/* No scroll anchoring: render() puts a redrawn page back where it was, and an anchor
+   from the old page would then move it. */
+main { overflow-y: auto; overflow-anchor: none; padding: 18px 22px 28px; }
 h1 { font-size: 18px; margin: 0; }
 .page-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; }
 .head-actions { display: flex; gap: 6px; }
@@ -85,6 +87,22 @@ input[type=range] { width: 100%; accent-color: var(--kiso-accent); }
 .slider output { text-align: right; color: var(--kiso-muted); font-variant-numeric: tabular-nums; }
 .unit { display: inline-flex; align-items: center; gap: 6px; color: var(--kiso-muted); }
 :focus-visible { outline: 2px solid var(--kiso-link); outline-offset: 2px; }
+/* Help: short text, an (i) for the rest. */
+.help-block > .help { margin: 4px 0 0; }
+.help-block > .help.more { margin-top: 4px; }
+#main button.info, #modal button.info {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; padding: 0; vertical-align: 1px; border-radius: 50%;
+  font: italic 700 11px/1 Georgia, serif; color: var(--kiso-muted); }
+#main button.info[aria-expanded="true"], #modal button.info[aria-expanded="true"] {
+  background: var(--kiso-accent); border-color: var(--kiso-accent); color: var(--kiso-accent-fg); }
+/* Sections that open: a quiet summary line with a turning arrow. */
+details.disclosure > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+                               color: var(--kiso-link); width: fit-content; }
+details.disclosure > summary::-webkit-details-marker { display: none; }
+details.disclosure > summary::before { content: ""; width: 6px; height: 6px; margin: 0 2px; border: solid currentColor;
+                                       border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .15s; }
+details.disclosure[open] > summary::before { transform: rotate(45deg); }
+
 /* Empty states */
 .blank { text-align: center; padding: 36px 16px; color: var(--kiso-muted); }
 .blank p { margin: 4px auto 14px; max-width: 46ch; }
@@ -93,6 +111,10 @@ input[type=range] { width: 100%; accent-color: var(--kiso-accent); }
 footer { position: fixed; inset: auto 0 0 0; height: 52px; box-sizing: border-box; display: flex; align-items: center;
          gap: 8px; padding: 0 16px; border-top: 1px solid var(--kiso-soft); background: var(--kiso-canvas); }
 #status { color: var(--kiso-muted); margin-right: auto; }
+/* Unsaved edits: a small marked pill, so pending changes are hard to miss. */
+#status.dirty { display: inline-flex; align-items: center; gap: 7px; padding: 3px 10px 3px 8px; border-radius: 999px;
+                color: var(--kiso-fg); background: color-mix(in srgb, var(--kiso-accent) 13%, transparent); }
+#status.dirty::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--kiso-accent); }
 #errors { color: var(--kiso-danger); }
 
 /* Modal */
