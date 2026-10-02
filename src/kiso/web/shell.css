@@ -71,6 +71,7 @@ section.panel + section.panel { margin-top: 14px; }
 #main button.primary, #modal button.primary, footer button.primary { background: var(--kiso-accent); border-color: var(--kiso-accent); color: var(--kiso-accent-fg); }
 #main button.link, #modal button.link { border: 0; background: none; padding: 2px 4px; color: var(--kiso-link); }
 #main button.danger, #modal button.danger { color: var(--kiso-danger); }
+#modal button.primary.danger { background: var(--kiso-danger); border-color: var(--kiso-danger); color: #fff; }
 #main button.icon-only, #modal button.icon-only { border: 0; background: none; padding: 4px; color: var(--kiso-muted); }
 #main button.icon-only:hover, #modal button.icon-only:hover { color: var(--kiso-danger); }
 button:disabled { opacity: .5; cursor: default; }

@@ -9,7 +9,7 @@
    Globals the add-on's pages use: S (the state from op_state), saved and draft
    (the config as saved and as edited), page (the current page id), and the
    helpers below: call, h, icon, ICONS, clone, same, changed, render, pageHead,
-   radio, slider, openModal, closeModal. */
+   radio, slider, openModal, closeModal, confirmDialog. */
 
 let S = null;
 let saved = null;
@@ -144,15 +144,32 @@ function slider(label, value, min, max, unit, set) {
       out));
 }
 
+// Modals stack: a confirmation can open over a dialog, and closing takes off the top one.
 function openModal(dialog) {
   const overlay = h("div", { className: "overlay", onclick: (e) => { if (e.target === overlay) closeModal(); } }, dialog);
-  document.getElementById("modal").replaceChildren(overlay);
-  const first = dialog.querySelector("button.primary") || dialog.querySelector("button");
+  document.getElementById("modal").append(overlay);
+  const first = dialog.querySelector("[data-focus]") || dialog.querySelector("button.primary") || dialog.querySelector("button");
   if (first) first.focus();
 }
 
 function closeModal() {
-  document.getElementById("modal").replaceChildren();
+  const top = document.getElementById("modal").lastElementChild;
+  if (top) top.remove();
+}
+
+// Ask before doing something; resolves true only for `yes`. With `danger`, the yes
+// button is red and focus starts on `no`, so Enter can't destroy anything.
+function confirmDialog({ title, text = "", yes = "OK", no = "Cancel", danger = false }) {
+  return new Promise((resolve) => {
+    const answer = (ok) => { closeModal(); resolve(ok); };
+    openModal(h("div", { className: "dialog small", role: "alertdialog", "aria-label": title },
+      h("h2", {}, title),
+      text && h("p", { className: "help" }, text),
+      h("div", { className: "dialog-foot" },
+        h("button", { type: "button", id: "confirmNo", "data-focus": danger, onclick: () => answer(false) }, no),
+        h("button", { type: "button", id: "confirmYes", className: danger ? "primary danger" : "primary",
+                      onclick: () => answer(true) }, yes))));
+  });
 }
 
 // -- footer -----------------------------------------------------------------
