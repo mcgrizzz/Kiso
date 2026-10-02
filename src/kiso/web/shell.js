@@ -117,9 +117,9 @@ function changed(rerender) {
 
 function renderNav() {
   document.getElementById("nav").replaceChildren(
-    h("div", { className: "brand" }, Kiso.options.brand()),
+    ...(Kiso.options.brand ? [h("div", { className: "brand" }, Kiso.options.brand())] : []),
     ...Kiso.pages.map((p) =>
-      h("button", { type: "button", "aria-current": page === p.id ? "true" : "false",
+      h("button", { type: "button", "data-page": p.id, "aria-current": page === p.id ? "true" : "false",
                     onclick: () => { page = p.id; render(); } }, icon(p.icon), p.title,
         draft && pageChanged(p.id) && h("span", { className: "dot", title: "Unsaved changes" }, "•"))));
 }
@@ -210,7 +210,7 @@ async function save() {
     const err = res.errors[0];
     document.getElementById("errors").textContent = err.message;
     if (Kiso.options.onSaveError) Kiso.options.onSaveError(err);
-    page = err.page;
+    if (err.page) page = err.page;   // a failure that isn't one field's (writing the config) stays put
     render();
     const el = document.querySelector(`[data-field="${err.field}"]`);
     if (el) el.focus();
@@ -224,23 +224,28 @@ async function save() {
 }
 
 window.askClose = () => {
+  const titles = Kiso.pages.filter((p) => pageChanged(p.id)).map((p) => p.title);
   openModal(h("div", { className: "dialog small" },
     h("h2", {}, "Save your changes?"),
-    h("p", { className: "help" }, "Your edits haven't been saved."),
+    h("p", { className: "help" }, titles.length ? `You have unsaved changes on: ${titles.join(", ")}.`
+                                                : "Your edits haven't been saved."),
     h("div", { className: "dialog-foot" },
-      h("button", { type: "button", onclick: closeModal }, "Keep editing"),
-      h("button", { type: "button", onclick: () => call("close") }, "Discard"),
-      h("button", { type: "button", className: "primary", onclick: async () => { if (await save()) call("close"); } }, "Save"))));
+      h("button", { type: "button", id: "keepEditing", onclick: closeModal }, "Keep editing"),
+      h("button", { type: "button", id: "discardClose", onclick: () => call("close") }, "Discard"),
+      h("button", { type: "button", id: "saveClose", className: "primary",
+                    onclick: async () => { if (await save()) call("close"); } }, "Save"))));
 };
 
 // -- start --------------------------------------------------------------------
-// options: {prefix, pages, brand() -> elements, first?, onLoad(state)?, onChange(dirty)?,
+// options: {prefix, pages, brand()? -> elements (atop the sidebar), footer()? -> elements (the footer's
+//           left end, drawn once; the add-on updates them itself), first?, onLoad(state)?, onChange(dirty)?,
 //           beforeRender(page)?, afterRender(page)?, onCancel()?, onSaveError(err)?, unsaved(pages)?}
 
 Kiso.setup = (options) => {
   Kiso.options = options;
   Kiso.prefix = options.prefix;
   Kiso.pages = options.pages;
+  if (options.footer) document.getElementById("about").replaceChildren(...[options.footer()].flat(Infinity).filter(Boolean));
   document.getElementById("save").addEventListener("click", save);
   // Cancel: drop unsaved edits on every page and go back to what's saved (Revert this page is the per-page version).
   document.getElementById("cancel").addEventListener("click", () => {
