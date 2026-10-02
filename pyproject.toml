@@ -1,0 +1,42 @@
+[project]
+name = "kiso-anki"
+version = "0.1.0"
+description = "Kiso (基礎): the plumbing Anki add-ons share, bundled into each add-on, plus its dev tooling"
+requires-python = ">=3.10"
+dependencies = ["tomli; python_version < '3.11'"]
+
+# `anki`/`aqt` come from the developer's environment; the bundled runtime runs inside Anki.
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "anki>=26.8"]
+
+[project.scripts]
+kiso = "kiso_dev.cli:main"
+
+[project.entry-points.pytest11]
+kiso = "kiso_dev.pytest_plugin"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+kiso = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    'error::DeprecationWarning:(kiso|anki|aqt)(\.|$)',
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E4", "E9", "F", "B", "I"]
+
+# The runtime must never import itself as `kiso` (a bundled copy has no top-level
+# kiso); kiso_dev.bundle.check_relative checks that on every bundle, and a test runs it.

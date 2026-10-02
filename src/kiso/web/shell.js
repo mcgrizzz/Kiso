@@ -1,0 +1,220 @@
+/* Kiso's settings shell. No build step: plain DOM through h(), and text always
+   goes through textContent.
+
+   The add-on's script calls Kiso.setup({...}) with its pages; the shell owns
+   the sidebar, the footer (Save keeps the window open, Cancel drops unsaved
+   edits, only X or Esc closes and asks first), unsaved-change dots, per-page
+   Revert and Restore defaults, and save errors that jump to their field.
+
+   Globals the add-on's pages use: S (the state from op_state), saved and draft
+   (the config as saved and as edited), page (the current page id), and the
+   helpers below: call, h, icon, ICONS, clone, same, changed, render, pageHead,
+   radio, slider, openModal, closeModal. */
+
+let S = null;
+let saved = null;
+let draft = null;
+let page = null;
+
+const Kiso = {
+  options: null,
+  pages: [],
+  // How a page reaches Python: the bridge's prefix, without the colon.
+  prefix: "kiso",
+};
+
+const ICONS = { close: "M6 6l12 12M18 6L6 18" };
+
+function call(op, arg) {
+  return new Promise((resolve) => pycmd(Kiso.prefix + ":" + JSON.stringify({ op, arg }), resolve));
+}
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
+    else if (k in el && k !== "list" && k !== "form") el[k] = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+
+function icon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", ICONS[name]);
+  svg.append(path);
+  return svg;
+}
+
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// -- pages ----------------------------------------------------------------
+// A page: {id, title, icon (an ICONS key), render() -> elements,
+//          slice(cfg) -> the part of the config it edits (for its unsaved dot),
+//          revert(draft)? (Revert this page: put its part of the draft back as saved),
+//          restore(draft)? (Restore defaults; none when there's nothing sensible to restore),
+//          restoreTitle? (what Restore does, as a tooltip)}
+
+const pageOf = (id) => Kiso.pages.find((p) => p.id === id);
+const pageChanged = (id) => !same(pageOf(id).slice(draft), pageOf(id).slice(saved));
+
+// Each action shows only when it would change something; both wait for Save.
+function pageActions() {
+  const p = pageOf(page);
+  const restore = p.restore;
+  const wouldRestore = restore && (() => { const d = clone(draft); restore(d); return !same(p.slice(d), p.slice(draft)); })();
+  return h("div", { className: "head-actions" },
+    pageChanged(page) && p.revert && h("button", { type: "button", className: "quiet", id: "revertPage",
+      title: "Undo unsaved changes on this page only. Other pages keep theirs.",
+      onclick: () => { p.revert(draft); changed(true); } }, "Revert this page"),
+    wouldRestore && h("button", { type: "button", className: "quiet", id: "restorePage",
+      title: p.restoreTitle || "Back to this page's defaults. Nothing changes until Save.",
+      onclick: () => { restore(draft); changed(true); } }, "Restore defaults"));
+}
+
+function pageHead(title, lead) {
+  return [h("header", { className: "page-head" }, h("h1", {}, title), pageActions()),
+          lead && h("p", { className: "lead" }, lead)];
+}
+
+// -- change tracking --------------------------------------------------------
+
+function changed(rerender) {
+  const dirtyPages = Kiso.pages.filter((p) => pageChanged(p.id)).length;
+  const dirty = !same(draft, saved);
+  // Neither Save nor Cancel closes the window; only X or Esc does (asking first when there are unsaved edits).
+  document.getElementById("save").disabled = !dirty;
+  document.getElementById("cancel").disabled = !dirty;
+  const pages = `${dirtyPages || 1} page${dirtyPages > 1 ? "s" : ""}`;
+  document.getElementById("status").textContent = dirty
+    ? (Kiso.options.unsaved ? Kiso.options.unsaved(pages) : `Unsaved changes on ${pages}`) : "";
+  document.getElementById("errors").textContent = "";
+  call("dirty", dirty);
+  if (rerender) render();
+  else {
+    // Cheap, so it runs on every edit without rebuilding the page (and losing the field's focus).
+    renderNav();
+    const actions = document.querySelector(".head-actions");
+    if (actions) actions.replaceWith(pageActions());
+  }
+  if (Kiso.options.onChange) Kiso.options.onChange(dirty);
+}
+
+// -- shell ----------------------------------------------------------------
+
+function renderNav() {
+  document.getElementById("nav").replaceChildren(
+    h("div", { className: "brand" }, Kiso.options.brand()),
+    ...Kiso.pages.map((p) =>
+      h("button", { type: "button", "aria-current": page === p.id ? "true" : "false",
+                    onclick: () => { page = p.id; render(); } }, icon(p.icon), p.title,
+        draft && pageChanged(p.id) && h("span", { className: "dot", title: "Unsaved changes" }, "•"))));
+}
+
+function render() {
+  renderNav();
+  if (Kiso.options.beforeRender) Kiso.options.beforeRender(page);
+  document.getElementById("main").replaceChildren(...[pageOf(page).render()].flat(Infinity).filter(Boolean));
+  if (Kiso.options.afterRender) Kiso.options.afterRender(page);
+}
+
+// -- small controls -----------------------------------------------------------
+
+function radio(name, checked, label, onchange) {
+  return h("label", { className: "check" }, h("input", { type: "radio", name, checked, onchange }), label);
+}
+
+function slider(label, value, min, max, unit, set) {
+  const out = h("output", {}, value + unit);
+  return h("div", { className: "field" }, h("label", {}, label),
+    h("div", { className: "slider" },
+      h("input", { type: "range", min, max, value, "aria-label": label,
+                   oninput: (e) => { set(Number(e.target.value)); out.textContent = e.target.value + unit; changed(); } }),
+      out));
+}
+
+function openModal(dialog) {
+  const overlay = h("div", { className: "overlay", onclick: (e) => { if (e.target === overlay) closeModal(); } }, dialog);
+  document.getElementById("modal").replaceChildren(overlay);
+  const first = dialog.querySelector("button.primary") || dialog.querySelector("button");
+  if (first) first.focus();
+}
+
+function closeModal() {
+  document.getElementById("modal").replaceChildren();
+}
+
+// -- footer -----------------------------------------------------------------
+
+async function save() {
+  const res = await call("save", draft);
+  if (res.errors) {
+    const err = res.errors[0];
+    document.getElementById("errors").textContent = err.message;
+    if (Kiso.options.onSaveError) Kiso.options.onSaveError(err);
+    page = err.page;
+    render();
+    const el = document.querySelector(`[data-field="${err.field}"]`);
+    if (el) el.focus();
+    return false;
+  }
+  saved = clone(res.cfg);
+  draft = clone(res.cfg);
+  changed(true);
+  document.getElementById("status").textContent = "Saved";
+  return true;
+}
+
+window.askClose = () => {
+  openModal(h("div", { className: "dialog small" },
+    h("h2", {}, "Save your changes?"),
+    h("p", { className: "help" }, "Your edits haven't been saved."),
+    h("div", { className: "dialog-foot" },
+      h("button", { type: "button", onclick: closeModal }, "Keep editing"),
+      h("button", { type: "button", onclick: () => call("close") }, "Discard"),
+      h("button", { type: "button", className: "primary", onclick: async () => { if (await save()) call("close"); } }, "Save"))));
+};
+
+// -- start --------------------------------------------------------------------
+// options: {prefix, pages, brand() -> elements, first?, onLoad(state)?, onChange(dirty)?,
+//           beforeRender(page)?, afterRender(page)?, onCancel()?, onSaveError(err)?, unsaved(pages)?}
+
+Kiso.setup = (options) => {
+  Kiso.options = options;
+  Kiso.prefix = options.prefix;
+  Kiso.pages = options.pages;
+  document.getElementById("save").addEventListener("click", save);
+  // Cancel: drop unsaved edits on every page and go back to what's saved (Revert this page is the per-page version).
+  document.getElementById("cancel").addEventListener("click", () => {
+    if (options.onCancel) options.onCancel();
+    draft = clone(saved);
+    changed(true);
+    document.getElementById("status").textContent = "Unsaved changes discarded";
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.getElementById("modal").firstChild) { e.stopPropagation(); closeModal(); }
+  }, true);
+  (function start() {
+    if (typeof pycmd !== "function") return setTimeout(start, 20);   // web channel not ready yet
+    call("state").then((state) => {
+      S = state;
+      saved = clone(state.cfg);
+      draft = clone(state.cfg);
+      page = options.first || Kiso.pages[0].id;
+      if (options.onLoad) options.onLoad(state);
+      render();
+      window.kisoReady = true;   // for real-Anki checks
+    });
+  })();
+};

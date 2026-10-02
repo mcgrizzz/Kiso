@@ -1,0 +1,107 @@
+/* Kiso's settings shell. Anki's theme variables keep light and night mode
+   native; add-ons style their own pages with the --kiso-* tokens. Rules on
+   buttons and inputs are ID-scoped where Anki's own styles would win. */
+:root {
+  --kiso-canvas: var(--canvas, #f5f5f5);
+  --kiso-card: var(--canvas-elevated, #ffffff);
+  --kiso-inset: var(--canvas-inset, #ffffff);
+  --kiso-fg: var(--fg, #1f1f1f);
+  --kiso-muted: color-mix(in srgb, var(--kiso-fg) 68%, var(--kiso-canvas));
+  --kiso-border: var(--border, #d0d0d0);
+  --kiso-soft: var(--border-subtle, #e4e4e4);
+  --kiso-accent: var(--button-primary-bg, #2f6fd6);
+  --kiso-accent-fg: #ffffff;
+  --kiso-link: color-mix(in srgb, var(--kiso-accent) 72%, var(--kiso-fg));
+  --kiso-danger: var(--accent-danger, #c62828);
+  --kiso-radius: 8px;
+}
+
+html, body { height: 100%; margin: 0; }
+body { background: var(--kiso-canvas); color: var(--kiso-fg); font-size: 13.5px; line-height: 1.4; overflow: hidden; }
+#shell { display: grid; grid-template-columns: 200px 1fr; height: calc(100% - 52px); }
+button, input, select { font: inherit; }
+
+/* Navigation */
+#nav { display: flex; flex-direction: column; gap: 1px; border-right: 1px solid var(--kiso-soft); padding: 14px 10px; }
+.brand { display: flex; align-items: baseline; gap: 8px; padding: 2px 10px 16px; }
+.brand b { font-size: 22px; font-weight: 600; letter-spacing: .04em; }
+.brand span { color: var(--kiso-muted); }
+#nav button {
+  display: flex; gap: 9px; align-items: center; box-sizing: border-box; width: 100%; margin: 0;
+  text-align: left; padding: 7px 10px;
+  border: 0; border-radius: 6px; background: none; box-shadow: none; color: var(--kiso-fg); cursor: pointer;
+}
+#nav button:hover { background: var(--kiso-soft); }
+#nav button[aria-current="true"] { background: var(--kiso-accent); color: var(--kiso-accent-fg); }
+#nav .dot { margin-left: auto; font-weight: 700; }
+.icon { width: 17px; height: 17px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.6;
+        stroke-linecap: round; stroke-linejoin: round; }
+
+/* Page */
+main { overflow-y: auto; padding: 18px 22px 28px; }
+h1 { font-size: 18px; margin: 0; }
+.page-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; }
+.head-actions { display: flex; gap: 6px; }
+.head-actions:empty { display: none; }
+#main button.quiet { font-size: 12.5px; padding: 3px 10px; background: transparent; }
+#main button.quiet:hover { color: var(--kiso-link); }
+h2 { font-size: 14px; margin: 0; }
+.lead { color: var(--kiso-muted); margin: 3px 0 16px; max-width: 72ch; }
+.help { color: var(--kiso-muted); font-size: 12.5px; max-width: 64ch; }
+.muted { color: var(--kiso-muted); }
+.panel { background: var(--kiso-card); border: 1px solid var(--kiso-soft); border-radius: var(--kiso-radius); padding: 14px 16px; }
+section.panel + section.panel { margin-top: 14px; }
+.two > .panel { margin-top: 0 !important; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.panel-head .help { flex-basis: 100%; margin-top: -6px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: stretch; }
+.field { display: grid; grid-template-columns: 104px 1fr; gap: 6px 12px; align-items: center; margin: 10px 0 0; }
+.field > label, .field > .label { color: var(--kiso-muted); }
+.help.indent { margin: 2px 0 6px 26px; }
+.error { color: var(--kiso-danger); font-size: 12.5px; }
+.check { display: flex; gap: 8px; align-items: center; margin: 8px 0 0; cursor: pointer; }
+.choices { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+
+/* Controls */
+#main button, #modal button, footer button {
+  padding: 5px 12px; border-radius: 6px; border: 1px solid var(--kiso-border); background: var(--kiso-card);
+  color: var(--kiso-fg); box-shadow: none; cursor: pointer; white-space: nowrap;
+}
+#main button:hover, #modal button:hover { border-color: var(--kiso-link); }
+#main button.primary, #modal button.primary, footer button.primary { background: var(--kiso-accent); border-color: var(--kiso-accent); color: var(--kiso-accent-fg); }
+#main button.link, #modal button.link { border: 0; background: none; padding: 2px 4px; color: var(--kiso-link); }
+#main button.danger, #modal button.danger { color: var(--kiso-danger); }
+#main button.icon-only, #modal button.icon-only { border: 0; background: none; padding: 4px; color: var(--kiso-muted); }
+#main button.icon-only:hover, #modal button.icon-only:hover { color: var(--kiso-danger); }
+button:disabled { opacity: .5; cursor: default; }
+input[type=text], input[type=number], input[type=time], select {
+  box-sizing: border-box; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--kiso-border);
+  background: var(--kiso-inset); color: var(--kiso-fg); min-width: 0;
+}
+input[type=number] { width: 76px; }
+input[type=range] { width: 100%; accent-color: var(--kiso-accent); }
+.slider { display: grid; grid-template-columns: 1fr 44px; gap: 10px; align-items: center; }
+.slider output { text-align: right; color: var(--kiso-muted); font-variant-numeric: tabular-nums; }
+.unit { display: inline-flex; align-items: center; gap: 6px; color: var(--kiso-muted); }
+:focus-visible { outline: 2px solid var(--kiso-link); outline-offset: 2px; }
+/* Empty states */
+.blank { text-align: center; padding: 36px 16px; color: var(--kiso-muted); }
+.blank p { margin: 4px auto 14px; max-width: 46ch; }
+
+/* Footer */
+footer { position: fixed; inset: auto 0 0 0; height: 52px; box-sizing: border-box; display: flex; align-items: center;
+         gap: 8px; padding: 0 16px; border-top: 1px solid var(--kiso-soft); background: var(--kiso-canvas); }
+#status { color: var(--kiso-muted); margin-right: auto; }
+#errors { color: var(--kiso-danger); }
+
+/* Modal */
+#modal:empty { display: none; }
+.overlay { position: fixed; inset: 0; background: #0007; display: grid; place-items: center; z-index: 10; }
+.dialog { background: var(--kiso-card); color: var(--kiso-fg); border-radius: 10px; padding: 16px 18px; box-shadow: 0 10px 40px #0006;
+          width: min(860px, 92vw); max-height: 86vh; display: flex; flex-direction: column; gap: 12px; }
+.dialog.small { width: min(420px, 92vw); }
+.dialog-head { display: flex; align-items: center; gap: 8px; }
+.dialog-head h2 { margin-right: auto; }
+.dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
