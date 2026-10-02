@@ -97,7 +97,8 @@ footer { position: fixed; inset: auto 0 0 0; height: 52px; box-sizing: border-bo
 
 /* Modal */
 #modal:empty { display: none; }
-.overlay { position: fixed; inset: 0; background: #0007; display: grid; place-items: center; z-index: 10; }
+/* Above anything an add-on page stacks: a modal must take every click. */
+.overlay { position: fixed; inset: 0; background: #0007; display: grid; place-items: center; z-index: 10000; }
 .dialog { background: var(--kiso-card); color: var(--kiso-fg); border-radius: 10px; padding: 16px 18px; box-shadow: 0 10px 40px #0006;
           width: min(860px, 92vw); max-height: 86vh; display: flex; flex-direction: column; gap: 12px; }
 .dialog.small { width: min(420px, 92vw); }
