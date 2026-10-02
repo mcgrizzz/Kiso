@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnkiWeb upload helper
 // @namespace    https://github.com/mcgrizzz/Kiso
-// @version      0.2.0
+// @version      0.3.0
 // @description  Fills AnkiWeb's add-on upload form from the add-on's ankiweb.md and latest GitHub release. You still press Save.
 // @match        https://ankiweb.net/*
 // @grant        GM_xmlhttpRequest
@@ -20,6 +20,11 @@
    the page fills Title, Tags, Support Page, the branches' versions and the
    Description from that file, and attaches the .ankiaddon from the repo's latest
    release. Nothing is sent until you press Save.
+
+   A new add-on (https://ankiweb.net/shared/upload, no id yet) can be linked and
+   filled the same way. Its link waits until the add-on has an id: the first
+   AnkiWeb page with one after the Save (the edit page, or the add-on's info page)
+   takes it, if that add-on has no link yet and it's within an hour.
 
    The description gets a "what's new" link to that release ({{version}} and
    {{release_url}} in ankiweb.md place it; without them it goes at the end).
@@ -93,8 +98,32 @@
     return description.replace(/\{\{\s*version\s*\}\}/g, () => tag).replace(/\{\{\s*release_url\s*\}\}/g, () => url);
   }
 
+  // -- which page --------------------------------------------------------------
+
+  /** {kind: "edit", id} on an add-on's edit page, {kind: "new"} on the new add-on page,
+      {kind: "info", id} on an add-on's page; otherwise null. */
+  function pageOf(pathname, search) {
+    const path = pathname.replace(/\/+$/, "");
+    if (path === "/shared/upload") {
+      const id = new URLSearchParams(search).get("id");
+      return id ? (/^\d+$/.test(id) ? { kind: "edit", id } : null) : { kind: "new" };
+    }
+    const info = path.match(/^\/shared\/info\/(\d+)$/);
+    return info ? { kind: "info", id: info[1] } : null;
+  }
+
+  // A new add-on's link, waiting for its id: taken within this long of linking it.
+  const PENDING_MS = 60 * 60 * 1000;
+
+  /** The links with a waiting new add-on's link given to `id`, or null when it shouldn't be:
+      none waiting, too old, or `id` already linked. */
+  function claim(links, pending, id, now) {
+    if (!pending || !id || links[id] || now - pending.at > PENDING_MS) return null;
+    return { ...links, [id]: pending.link };
+  }
+
   if (typeof window === "undefined") {   // loaded by the parser test in Node
-    module.exports = { parseListing, parseLink, linkedVersion, withRelease };
+    module.exports = { parseListing, parseLink, linkedVersion, withRelease, pageOf, claim };
     return;
   }
 
@@ -138,11 +167,27 @@
   // -- the page ----------------------------------------------------------------
 
   const links = () => GM_getValue("links", {});
+  const NEW = "new";   // the panel's key on the new add-on page
 
-  function addonId() {
-    if (location.pathname !== "/shared/upload") return null;
-    const id = new URLSearchParams(location.search).get("id");
-    return id && /^\d+$/.test(id) ? id : null;
+  /** The link for a panel: an add-on's own, or on the new add-on page the one waiting. */
+  function linkFor(key) {
+    if (key !== NEW) return links()[key];
+    const pending = GM_getValue("pending", null);
+    return pending && Date.now() - pending.at <= PENDING_MS ? pending.link : undefined;
+  }
+
+  function saveLink(key, link) {
+    if (key === NEW) GM_setValue("pending", { link, at: Date.now() });
+    else GM_setValue("links", { ...links(), [key]: link });
+  }
+
+  /** On a page with an add-on's id: give it the new add-on's waiting link. True if it did. */
+  function claimPending(id) {
+    const updated = claim(links(), GM_getValue("pending", null), id, Date.now());
+    if (!updated) return false;
+    GM_setValue("links", updated);
+    GM_setValue("pending", null);
+    return true;
   }
 
   function set(el, value, event = "input") {
@@ -226,7 +271,7 @@
 
   // -- the panel ---------------------------------------------------------------
 
-  function panel(id, form) {
+  function panel(key, form, note = "") {
     document.getElementById("awuh-panel")?.remove();
     const box = document.createElement("div");
     box.id = "awuh-panel";
@@ -254,11 +299,18 @@
       return b;
     };
     const title = document.createElement("b");
-    title.textContent = "Upload helper";
+    title.textContent = key === NEW ? "Upload helper (new add-on)" : "Upload helper";
     title.style.display = "block";
-    box.append(title, status);
+    box.append(title);
+    if (note) {
+      const line = document.createElement("div");
+      line.style.color = "#1b6e2b";
+      line.textContent = note;
+      box.append(line);
+    }
+    box.append(status);
 
-    const link = links()[id];
+    const link = linkFor(key);
     if (link) {
       // Read before filling replaces the description: the version AnkiWeb has now.
       const live = linkedVersion(form.querySelector("textarea").value, link);
@@ -281,25 +333,49 @@
       const save = button("Link and fill", () => {
         const parsed = parseLink(field.value);
         if (!parsed) return say("That isn't a GitHub file link. Open the file on GitHub and copy the address.");
-        GM_setValue("links", { ...links(), [id]: parsed });
-        panel(id, form);
+        saveLink(key, parsed);
+        panel(key, form);
       });
       status.append(field, save);
       field.focus();
     }
   }
 
-  // AnkiWeb is a single-page app: watch for the form on each page it shows.
+  // A short note, for a page with no form (the add-on's page after a new add-on's Save).
+  function toast(message) {
+    document.getElementById("awuh-panel")?.remove();
+    const box = document.createElement("div");
+    box.id = "awuh-panel";
+    Object.assign(box.style, {
+      position: "fixed", right: "16px", bottom: "16px", zIndex: 9999, width: "340px", padding: "12px",
+      background: "#fff", color: "#222", border: "1px solid #ccc", borderRadius: "8px",
+      boxShadow: "0 4px 16px #0003", font: "13px/1.4 system-ui, sans-serif",
+    });
+    box.textContent = message;
+    document.body.append(box);
+    setTimeout(() => box.remove(), 8000);
+  }
+
+  // AnkiWeb is a single-page app: watch for the form on each page it shows. A page
+  // with an add-on's id first takes a new add-on's waiting link.
   let shown = null;
+  let claimed = null;
   setInterval(() => {
-    const id = addonId();
-    const form = id && document.querySelector("form textarea")?.closest("form");
+    const page = pageOf(location.pathname, location.search);
+    let note = "";
+    if (page?.id && claimed !== page.id && claimPending(page.id)) {
+      claimed = page.id;
+      note = `Linked add-on ${page.id} to the ankiweb.md you chose for it.`;
+      if (page.kind === "info") toast(`Upload helper: ${note}`);
+    }
+    const key = page?.kind === "edit" ? page.id : page?.kind === "new" ? NEW : null;
+    const form = key && document.querySelector("form textarea")?.closest("form");
     if (!form) {
-      if (!id) { shown = null; document.getElementById("awuh-panel")?.remove(); }
+      if (!key && page?.kind !== "info") { shown = null; document.getElementById("awuh-panel")?.remove(); }
       return;
     }
     if (shown === form) return;
     shown = form;
-    panel(id, form);
+    panel(key, form, note);
   }, 500);
 })();
