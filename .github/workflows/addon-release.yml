@@ -1,0 +1,110 @@
+name: Add-on release
+
+# For an Anki add-on built on Kiso: on a version tag (v1.2.3, matching pyproject.toml's
+# version), build the .ankiaddon and its .sha256 and attach them to a draft GitHub release.
+# Run it after the add-on's CI passes:
+#
+#   on:
+#     push:
+#       tags: ["v*"]
+#     workflow_dispatch:      # releases v<version> from the chosen branch, creating the tag
+#   jobs:
+#     ci:
+#       uses: mcgrizzz/Kiso/.github/workflows/addon-ci.yml@main
+#     release:
+#       needs: ci
+#       permissions:
+#         contents: write
+#       uses: mcgrizzz/Kiso/.github/workflows/addon-release.yml@main
+#
+# It never replaces the files of a published release, and only attaches files built from
+# the commit the tag points to.
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        default: "3.13"
+      title:
+        description: The release's title before its version; empty uses manifest.json's name.
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Draft release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: mcgrizzz/Kiso@main
+        with:
+          python-version: ${{ inputs.python-version }}
+          anki: none
+
+      - name: Check the tag against the version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          TITLE: ${{ inputs.title }}
+        run: |
+          kiso info >> "$GITHUB_OUTPUT"
+          version=$(kiso info | sed -n 's/^version=//p')
+          tag=$([ "$REF_TYPE" = tag ] && echo "$REF_NAME" || echo "v$version")
+          kiso check-tag "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          [ -n "$TITLE" ] || TITLE=$(python -c 'import json; print(json.load(open("manifest.json")).get("name", ""))')
+          echo "title=${TITLE:-$(kiso info | sed -n 's/^folder=//p')} $version" >> "$GITHUB_OUTPUT"
+
+      - name: Build (bundles Kiso, checks the archive, writes its .sha256)
+        run: |
+          kiso build
+          cd dist && sha256sum --check "$(basename "${{ steps.version.outputs.artifact }}").sha256"
+
+      - name: Attach to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+          TITLE: ${{ steps.version.outputs.title }}
+          ARTIFACT: ${{ steps.version.outputs.artifact }}
+        run: |
+          # A published release keeps its files.
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            [ "$draft" = true ] || { echo "Release $TAG is already published; not replacing its files." >&2; exit 1; }
+            exists=true
+          else
+            exists=false
+          fi
+          # The tag must point to the commit just built (a manual run creates it here).
+          if ref=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" 2>/dev/null); then
+            type=$(jq -r .object.type <<<"$ref"); sha=$(jq -r .object.sha <<<"$ref")
+            while [ "$type" = tag ]; do   # an annotated tag points to a tag object first
+              obj=$(gh api "repos/$GH_REPO/git/tags/$sha"); type=$(jq -r .object.type <<<"$obj"); sha=$(jq -r .object.sha <<<"$obj")
+            done
+          else
+            gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA" >/dev/null
+            type=commit; sha=$GITHUB_SHA
+          fi
+          if [ "$type" != commit ] || [ "$sha" != "$GITHUB_SHA" ]; then
+            echo "Tag $TAG points to $sha, not the built commit $GITHUB_SHA; bump the version for a new release." >&2
+            exit 1
+          fi
+          if [ "$exists" = true ]; then
+            gh release upload "$TAG" "$ARTIFACT" "$ARTIFACT.sha256" --clobber
+          else
+            gh release create "$TAG" "$ARTIFACT" "$ARTIFACT.sha256" --verify-tag --draft --generate-notes --title "$TITLE"
+          fi
+          echo "Draft release $TAG: $(basename "$ARTIFACT") and its .sha256" >> "$GITHUB_STEP_SUMMARY"

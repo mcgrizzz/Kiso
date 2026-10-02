@@ -4,7 +4,7 @@ import zipfile
 import pytest
 
 import kiso
-from kiso_dev import build, bundle, project
+from kiso_dev import build, bundle, cli, project, release
 
 
 def make_addon(tmp_path, kiso_pin=""):
@@ -55,3 +55,22 @@ def test_build_packs_the_addon_with_kiso_and_without_local_state(tmp_path):
     assert not any("__pycache__" in n or n == "meta.json" for n in names)
     first = out.read_bytes()
     assert build.build(proj).read_bytes() == first   # unchanged tree, byte-identical archive
+
+
+def test_info_names_the_build_file(tmp_path, monkeypatch, capsys):
+    proj = make_addon(tmp_path)
+    assert release.info(proj) == {"folder": "demo", "package": "demo", "version": "1.2.3",
+                                  "artifact": "dist/demo-1.2.3.ankiaddon"}
+    monkeypatch.chdir(tmp_path)
+    cli.main(["info"])
+    assert "version=1.2.3\nartifact=dist/demo-1.2.3.ankiaddon" in capsys.readouterr().out
+
+
+def test_a_release_tag_must_be_the_projects_version(tmp_path):
+    proj = make_addon(tmp_path)
+    assert release.check_tag(proj, "v1.2.3") == "1.2.3"
+    with pytest.raises(SystemExit, match="doesn't match"):
+        release.check_tag(proj, "v1.2.4")
+    for bad in ("1.2.3", "v1.2", "v01.2.3", "v1.2.3-rc1"):
+        with pytest.raises(SystemExit, match="isn't a version"):
+            release.check_tag(proj, bad)

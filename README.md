@@ -35,6 +35,48 @@ lists Anki's printed deprecation notices after each run and fails on them with
 `KISO_STRICT_ANKI_NOTICES=1`. Kiso's own real-Anki check runs on a stand-in
 add-on in `checks/`: `python checks/check_runtime.py`.
 
+## GitHub Actions
+
+An add-on repo needs two short workflows. CI runs ruff and the tests on the newest Anki and on
+the oldest the add-on supports, then the real-Anki checks and the build (kept as a download
+on the run):
+
+```yaml
+# .github/workflows/ci.yml
+on: { push: { branches: [main] }, pull_request: {}, workflow_call: {} }
+jobs:
+  ci:
+    uses: mcgrizzz/Kiso/.github/workflows/addon-ci.yml@main
+    with:
+      floor-anki: "26.8.1"              # the Anki your min_point_version names
+      qt-checks: tools/qt_checks.sh     # optional
+```
+
+A tag `v1.2.3` matching pyproject.toml's version (or a manual run, which tags `v<version>`)
+runs CI, then attaches the `.ankiaddon` and its `.sha256` to a draft GitHub release:
+
+```yaml
+# .github/workflows/release.yml
+on: { push: { tags: ["v*"] }, workflow_dispatch: {} }
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: ci
+    permissions: { contents: write }
+    uses: mcgrizzz/Kiso/.github/workflows/addon-release.yml@main
+```
+
+Both are built on the setup action, which works in any workflow: `uses: mcgrizzz/Kiso@main`
+sets up Python, installs Kiso from that copy of the action (so the add-on bundles exactly
+that Kiso) and Anki with its Qt (`anki: "==26.8.1"`, `latest` or `none`; `qt: false` for anki
+alone). `kiso info` prints the add-on's folder, version and build file for later steps, and
+`kiso check-tag` stops a release whose tag doesn't match the version. Anki's deprecation
+notices fail the tests and checks.
+
+The AnkiWeb upload stays by hand (AnkiWeb doesn't allow automated uploads); the userscript
+below fills in its form.
+
 ## What's in it
 
 | Module | For |

@@ -1,0 +1,113 @@
+name: Add-on CI
+
+# For an Anki add-on built on Kiso: lint, tests (on the newest Anki, and on the oldest the
+# add-on supports when floor-anki is given), the add-on's real-Anki checks, and the build.
+#
+#   jobs:
+#     ci:
+#       uses: mcgrizzz/Kiso/.github/workflows/addon-ci.yml@main
+#       with:
+#         floor-anki: "26.8.1"
+#         qt-checks: tools/qt_checks.sh
+#
+# Anki's printed deprecation notices fail the tests and checks (KISO_STRICT_ANKI_NOTICES).
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: The Python for the newest Anki (Anki's launcher ships 3.13).
+        type: string
+        default: "3.13"
+      floor-anki:
+        description: The oldest Anki the add-on supports, e.g. "26.8.1"; tests run on it too. Empty skips it.
+        type: string
+        default: ""
+      floor-python:
+        description: The Python for the oldest Anki.
+        type: string
+        default: "3.10"
+      lint:
+        description: Run ruff check.
+        type: boolean
+        default: true
+      tests:
+        description: The test command.
+        type: string
+        default: python -m pytest -q
+      qt-checks:
+        description: The command for real-Anki checks, e.g. tools/qt_checks.sh. Empty skips them.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (Anki ${{ matrix.anki }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The newest Anki, and the oldest supported one when floor-anki is given.
+        include: ${{ fromJSON(inputs.floor-anki != '' && format('[{{"python":"{0}","anki":"latest"}},{{"python":"{1}","anki":"=={2}"}}]', inputs.python-version, inputs.floor-python, inputs.floor-anki) || format('[{{"python":"{0}","anki":"latest"}}]', inputs.python-version)) }}
+    env:
+      KISO_STRICT_ANKI_NOTICES: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: mcgrizzz/Kiso@main
+        with:
+          python-version: ${{ matrix.python }}
+          anki: ${{ matrix.anki }}
+      - name: Lint
+        if: inputs.lint
+        run: ruff check .
+      - name: Tests
+        run: ${{ inputs.tests }}
+
+  qt-checks:
+    name: Real-Anki checks
+    if: inputs.qt-checks != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      KISO_STRICT_ANKI_NOTICES: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: mcgrizzz/Kiso@main
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Checks
+        run: ${{ inputs.qt-checks }}
+
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: mcgrizzz/Kiso@main
+        with:
+          python-version: ${{ inputs.python-version }}
+          anki: none
+      - name: Build (bundles Kiso, checks the archive, writes its .sha256)
+        id: build
+        run: |
+          kiso build
+          kiso info >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.folder }}-${{ steps.build.outputs.version }}
+          path: |
+            ${{ steps.build.outputs.artifact }}
+            ${{ steps.build.outputs.artifact }}.sha256
+          if-no-files-found: error
+          retention-days: 14

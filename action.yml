@@ -1,0 +1,54 @@
+name: Kiso setup
+description: Python, Kiso (this copy, which the add-on then bundles) and Anki, for testing and building an Anki add-on.
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  python-version:
+    description: The Python to set up.
+    default: "3.13"
+  anki:
+    description: >-
+      The Anki to install: a pip version specifier such as "==26.8.1", "latest" for the newest
+      release, or "none" (enough to bundle and build).
+    default: latest
+  qt:
+    description: >-
+      "true" installs Anki's Qt (aqt[qt], the Qt each release is built against) and, on Linux, the
+      system libraries Qt needs, for tests and checks that use aqt. "false" installs only anki.
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v7
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Qt's system libraries
+      if: inputs.qt == 'true' && inputs.anki != 'none' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        # Ubuntu 24.04 renamed libasound2.
+        asound=libasound2t64; apt-cache show "$asound" >/dev/null 2>&1 || asound=libasound2
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends libegl1 libgl1 libopengl0 libxkbcommon0 \
+          libxkbcommon-x11-0 libxkbfile1 libnss3 "$asound" libxcomposite1 libxdamage1 libxrandr2 libxtst6 \
+          libgbm1 libdbus-1-3 libfontconfig1 libpulse0
+
+    - name: Kiso and Anki
+      shell: bash
+      env:
+        KISO: ${{ github.action_path }}
+        ANKI: ${{ inputs.anki }}
+        QT: ${{ inputs.qt }}
+      run: |
+        packages=("$KISO" pytest ruff)
+        if [ "$ANKI" != none ]; then
+          spec=""; [ "$ANKI" = latest ] || spec="$ANKI"
+          if [ "$QT" = true ]; then packages+=("aqt[qt]$spec"); else packages+=("anki$spec"); fi
+        fi
+        python -m pip install -q "${packages[@]}"
+        python -c 'import kiso, sys; print("Kiso", kiso.__version__, "on Python", sys.version.split()[0])'
+        if [ "$ANKI" != none ]; then python -c 'import anki.buildinfo as b; print("Anki", b.version)'; fi
