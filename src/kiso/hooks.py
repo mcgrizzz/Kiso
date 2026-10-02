@@ -6,14 +6,17 @@ import logging
 from typing import Any, Callable, List, Tuple
 
 
-def guard(fn: Callable, log: logging.Logger, what: str = "") -> Callable:
+def guard(fn: Callable, log: logging.Logger, what: str = "", passthrough: bool = False) -> Callable:
     """`fn`, logging instead of raising. Anki drops a hook subscriber that raises,
-    so one bad moment would otherwise switch a feature off for the session."""
+    so one bad moment would otherwise switch a feature off for the session.
+    With `passthrough` (a filter hook), a failure returns the first argument unchanged
+    for the next filter, instead of None."""
     def run(*args, **kwargs):
         try:
             return fn(*args, **kwargs)
         except Exception:
             log.exception("%s failed", what or getattr(fn, "__name__", "callback"))
+            return args[0] if passthrough and args else None
     run.__wrapped__ = fn
     return run
 
@@ -31,6 +34,16 @@ class Subscriptions:
         if hook is None:
             return fn
         guarded = guard(fn, self.log, what)
+        hook.append(guarded)
+        self._hooks.append((hook, guarded))
+        return guarded
+
+    def filter(self, hook: Any, fn: Callable, what: str = "") -> Callable:
+        """Append guarded `fn` to a gui_hooks filter (one that hands a value along, like
+        webview_did_receive_js_message): if it fails, the value passes through unchanged."""
+        if hook is None:
+            return fn
+        guarded = guard(fn, self.log, what, passthrough=True)
         hook.append(guarded)
         self._hooks.append((hook, guarded))
         return guarded

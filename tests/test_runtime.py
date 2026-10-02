@@ -20,6 +20,20 @@ def test_a_guarded_callback_logs_instead_of_raising(caplog):
     assert "Renderer failed" in caplog.text and "bad moment" in caplog.text
 
 
+def test_a_failing_filter_passes_its_value_on(caplog):
+    hook = FakeHook()
+    subs = hooks.Subscriptions(logging.getLogger("t"))
+
+    def boom(handled, message, context):
+        raise RuntimeError("bad message")
+    subs.filter(hook, boom, "Page message")
+    with caplog.at_level(logging.ERROR):
+        assert hook[0]((False, None), "x", None) == (False, None)
+    assert "Page message failed" in caplog.text
+    subs.remove_all()
+    assert hook == []
+
+
 def test_subscriptions_come_off_together():
     a, b = FakeHook(), FakeHook()
     subs = hooks.Subscriptions(logging.getLogger("t"))
