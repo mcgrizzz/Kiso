@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AnkiWeb upload helper
 // @namespace    https://github.com/mcgrizzz/Kiso
-// @version      0.1.0
+// @version      0.2.0
 // @description  Fills AnkiWeb's add-on upload form from the add-on's ankiweb.md and latest GitHub release. You still press Save.
 // @match        https://ankiweb.net/*
 // @grant        GM_xmlhttpRequest
@@ -20,6 +20,11 @@
    the page fills Title, Tags, Support Page, the branches' versions and the
    Description from that file, and attaches the .ankiaddon from the repo's latest
    release. Nothing is sent until you press Save.
+
+   The description gets a "what's new" link to that release ({{version}} and
+   {{release_url}} in ankiweb.md place it; without them it goes at the end).
+   AnkiWeb keeps no version itself, so that link is how the helper knows which
+   release is on AnkiWeb: if it's already the latest, no file is attached.
 
    ankiweb.md: one "## <field>" section per form field, its value in the first
    fenced block under it (Title, Tags, Support page, Branches, Description).
@@ -67,8 +72,29 @@
     return m ? { owner: m[1], repo: m[2], ref: m[3], path: m[4] } : null;
   }
 
+  // -- which version is on AnkiWeb ----------------------------------------------
+  // AnkiWeb keeps no version, and cleans hidden text out of descriptions when it
+  // saves them. So the description carries a visible "what's new" link to the
+  // release, and the version on AnkiWeb is read back from that link.
+
+  /** The release tag the saved description links to, or null. */
+  function linkedVersion(description, link) {
+    const prefix = `github.com/${link.owner}/${link.repo}/releases/tag/`.toLowerCase();
+    const at = description.toLowerCase().indexOf(prefix);
+    const tag = at < 0 ? null : description.slice(at + prefix.length).match(/^[^\s)"'<>\]]+/);
+    return tag ? decodeURIComponent(tag[0]) : null;
+  }
+
+  /** The description with {{version}} and {{release_url}} filled in; with neither, a what's-new line goes at the end. */
+  function withRelease(description, tag, url) {
+    if (!/\{\{\s*(version|release_url)\s*\}\}/.test(description)) {
+      description += "\n\n[What's new in {{version}}]({{release_url}})";
+    }
+    return description.replace(/\{\{\s*version\s*\}\}/g, () => tag).replace(/\{\{\s*release_url\s*\}\}/g, () => url);
+  }
+
   if (typeof window === "undefined") {   // loaded by the parser test in Node
-    module.exports = { parseListing, parseLink };
+    module.exports = { parseListing, parseLink, linkedVersion, withRelease };
     return;
   }
 
@@ -105,7 +131,8 @@
         .map((b) => b.toString(16).padStart(2, "0")).join("");
       if (got !== want) throw new Error(`${asset.name} doesn't match its .sha256`);
     }
-    return { tag: release.tag_name, file: new File([data], asset.name, { type: "application/octet-stream" }) };
+    return { tag: release.tag_name, url: release.html_url,
+             file: new File([data], asset.name, { type: "application/octet-stream" }) };
   }
 
   // -- the page ----------------------------------------------------------------
@@ -135,11 +162,15 @@
       (i % 2 ? rows : [...rows, [el, all[i + 1]]]), []);
   }
 
-  async function fill(form, link, say) {
+  /** Fill the form. `live`: the version on AnkiWeb, read before the first fill.
+      The file is attached only if the latest release isn't already there, or with `attach`. */
+  async function fill(form, link, say, live, attach = false) {
     const warnings = [];
     say(`Reading ${link.path} (${link.ref}) and the latest release...`);
-    const [text, addon] = await Promise.all([readListing(link), latestAddon(link).catch((e) => e)]);
+    const [text, release] = await Promise.all([readListing(link), latestAddon(link).catch((e) => e)]);
     const listing = parseListing(text);
+    const failed = release instanceof Error;
+    if (failed) warnings.push(`couldn't get the latest release: ${release.message}`);
 
     for (const [label, value] of [["Title", listing.title], ["Tags", listing.tags], ["Support Page", listing.support]]) {
       const el = inputLabelled(form, label);
@@ -167,24 +198,30 @@
 
     const description = form.querySelector("textarea");
     if (listing.description === undefined) warnings.push('no "Description" section');
-    else set(description, listing.description.trim());
+    else if (failed) warnings.push("Description not filled: its what's-new link needs the release");
+    else set(description, withRelease(listing.description.trim(), release.tag, release.url));
 
+    const same = !failed && live === release.tag;
     let attached = "";
-    if (addon instanceof Error) warnings.push(`no file attached: ${addon.message}`);
-    else {
+    if (!failed && (!same || attach)) {
       const fileInput = form.querySelector("input[type='file']");
       const branch = fileInput?.parentElement.querySelector("select");
       if (!fileInput) warnings.push("couldn't find the file picker");
       else {
         if (branch && branch.options.length) set(branch, branch.options[branch.options.length - 1].value, "change");
         const files = new DataTransfer();
-        files.items.add(addon.file);
+        files.items.add(release.file);
         fileInput.files = files.files;
         fileInput.dispatchEvent(new Event("change", { bubbles: true }));
-        attached = ` Attached ${addon.file.name} (${addon.tag})${branch ? " to the last branch" : ""}.`;
+        attached = ` Attached ${release.file.name}${branch ? " to the last branch" : ""}.`;
       }
     }
-    say(`Filled from ${link.path} (${link.ref}).${attached} Check it, then press Save.`, warnings);
+    const onAnkiWeb = live ? `On AnkiWeb: ${live}.` : "On AnkiWeb: unknown (no what's-new link yet).";
+    const latest = failed ? "" : same && !attach
+      ? ` The latest release, ${release.tag}, is already there: no file attached.`
+      : ` Latest release: ${release.tag}.`;
+    say(`${onAnkiWeb}${latest} Filled from ${link.path} (${link.ref}).${attached} Check it, then press Save.`, warnings);
+    return same;
   }
 
   // -- the panel ---------------------------------------------------------------
@@ -223,8 +260,14 @@
 
     const link = links()[id];
     if (link) {
-      const run = () => fill(form, link, say).catch((e) => say(`Couldn't fill: ${e.message}`));
-      box.append(button("Fill again", run), button("Change link", () => ask(link)));
+      // Read before filling replaces the description: the version AnkiWeb has now.
+      const live = linkedVersion(form.querySelector("textarea").value, link);
+      const anyway = button("Attach file anyway", () => run(true));
+      anyway.hidden = true;
+      const run = (attach = false) => fill(form, link, say, live, attach)
+        .then((same) => { anyway.hidden = !same || attach; })
+        .catch((e) => say(`Couldn't fill: ${e.message}`));
+      box.append(button("Fill again", () => run()), anyway, button("Change link", () => ask(link)));
       run();
     } else ask(null);
     document.body.append(box);

@@ -55,3 +55,8 @@ once for a link to the add-on's `ankiweb.md` on GitHub, then fills the form from
 value in its first fenced block) and attaches the `.ankiaddon` from the repo's latest
 release, checked against its `.sha256` if there is one. You check it and press Save
 yourself: AnkiWeb doesn't allow automated uploads.
+
+AnkiWeb stores no version and strips hidden text from descriptions, so the description
+carries a "what's new" link to the release: placed by `{{version}}` and `{{release_url}}`
+in `ankiweb.md`, or added at the end. The helper reads the version on AnkiWeb back from
+that link, and attaches no file when the latest release is already there.
