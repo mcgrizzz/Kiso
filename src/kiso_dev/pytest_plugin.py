@@ -7,10 +7,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from . import notices
 
 
-def pytest_configure(config):
+@pytest.hookimpl(tryfirst=True)
+def pytest_load_initial_conftests(early_config, parser, args):
+    """Before pytest imports the add-on's conftest.py, which may import the add-on: a fresh
+    checkout has no _kiso or lib/shared until now. (pytest_configure comes after the conftests.)"""
     try:
         import anki  # noqa: F401
     except ImportError:
@@ -20,7 +25,7 @@ def pytest_configure(config):
     from .project import find
     from .vendor import ensure
     try:
-        project = find(config.rootpath)
+        project = find(early_config.rootpath)
     except SystemExit:
         return   # not an add-on project (Kiso's own tests)
     bundle(project, quiet=True)

@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -162,3 +163,18 @@ def test_strict_mode_fails_only_on_the_add_ons_own_deprecated_calls(monkeypatch)
     assert [n[2] for n in notices.notices] == [False, True]
     assert notices.failing() == notices.notices[:1]
     assert notices.describe(notices.notices[1]) == "here: old() is deprecated (raised inside Anki)"
+
+
+def test_pytest_bundles_kiso_before_the_add_ons_conftest_imports_it(tmp_path):
+    # A fresh checkout has no _kiso (nor lib/shared) until pytest starts, and pytest imports the
+    # add-on's conftest.py before pytest_configure.
+    make_addon(tmp_path)
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "conftest.py").write_text(
+        "import sys, pathlib\nsys.path.insert(0, str(pathlib.Path(__file__).parents[1]))\n"
+        "from demo._kiso import hooks  # noqa: F401  (needs the bundle)\n")
+    (tests / "test_ok.py").write_text("def test_ok():\n    pass\n")
+    result = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(tests)],
+                            cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
