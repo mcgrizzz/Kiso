@@ -25,7 +25,6 @@ the function, so a reload's purge brings in the new code.
 from __future__ import annotations
 
 import logging
-import time
 import traceback
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
@@ -34,6 +33,7 @@ from . import devreload
 from .hooks import guard
 from .logs import attach_to_anki
 from .toggle import watch_own_toggle
+from .ui import wait_until
 
 
 class Addon:
@@ -149,28 +149,17 @@ class Addon:
             if then:
                 then(message)
             return message
-        from aqt.qt import QTimer
-
-        done = guard(done, self.log, "Stop check")   # a failing check counts as not stopped yet
-        deadline = time.monotonic() + self.stop_timeout
         report = then or (lambda message: self.log.info("Reload: %s", message))
 
-        def tick() -> None:
-            if done():
-                message = self._load()
-            elif time.monotonic() > deadline:
-                message = (f"reload failed: the old code didn't stop within {self.stop_timeout:g} s; "
-                           "restart Anki")
-            else:
-                return
-            self._waiting.stop()
-            self._waiting.deleteLater()
+        def finished(message: str) -> None:
             self._waiting = None
             report(message)
 
-        self._waiting = QTimer(self.mw)
-        self._waiting.timeout.connect(guard(tick, self.log, "Reload"))
-        self._waiting.start(50)
+        self._waiting = wait_until(
+            self.mw, guard(done, self.log, "Stop check"),   # a failing check counts as not stopped yet
+            guard(lambda: finished(self._load()), self.log, "Reload"), timeout=self.stop_timeout,
+            on_timeout=guard(lambda: finished(f"reload failed: the old code didn't stop within "
+                                              f"{self.stop_timeout:g} s; restart Anki"), self.log, "Reload"))
         return "reloading once the old code has stopped"
 
     def _load(self) -> str:

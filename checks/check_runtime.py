@@ -103,6 +103,18 @@ def check_reload(app):
     assert now.reload().startswith("reloaded") and len(starts) == 5
     print("PASS: a feature that stops at once reloads at once.")
 
+    from kisocheck.fixture._kiso import ui
+
+    hits, gave_up = [], []
+    assert ui.wait_until(mw, lambda: True, lambda: hits.append("now")) is None and hits == ["now"]
+    flag = threading.Event()
+    threading.Thread(target=lambda: mw.taskman.run_on_main(flag.set)).start()
+    ui.wait_until(mw, flag.is_set, lambda: hits.append("later"))
+    ui.wait_until(mw, lambda: 1 / 0, lambda: hits.append("never"), timeout=0.2, on_timeout=lambda: gave_up.append(1))
+    until(app, lambda: "later" in hits and gave_up, 5, "wait_until never answered")
+    assert hits == ["now", "later"]
+    print("PASS: wait_until answers at once, after main-thread work, or gives up (a raising check counts as not yet).")
+
 
 if __name__ == "__main__":
     run(check, __doc__)
