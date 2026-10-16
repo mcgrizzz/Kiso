@@ -6,6 +6,7 @@
     kiso audit              pip-audit the vendored lockfile (pip-audit must be installed)
     kiso sync [--watch]     bundle, then copy into Anki's add-ons folder for live reload
     kiso shots [--out DIR]  screenshots of the settings in the running Anki (a synced dev copy), every page
+                            (--tour NAME: only the add-on's tour of that name; --size WxH: only that size)
     kiso info               the add-on's folder, package, version and build file, as key=value lines
     kiso check-tag TAG      stop unless TAG is v<version>, for release workflows
 """
@@ -18,6 +19,14 @@ import sys
 from pathlib import Path
 
 from . import build, bundle, project, release, shots, sync, vendor
+
+
+def _size(text: str):
+    try:
+        w, h = (int(n) for n in text.lower().split("x"))
+    except ValueError:
+        raise argparse.ArgumentTypeError("a size is WxH, e.g. 1100x780") from None
+    return w, h
 
 
 def main(argv=None) -> None:
@@ -37,6 +46,8 @@ def main(argv=None) -> None:
     sh.add_argument("--out", type=Path, help="also copy the screenshots here")
     sh.add_argument("--narrow", type=int, default=800, help="the narrow width in px (0: the saved size only)")
     sh.add_argument("--timeout", type=float, default=360, help="seconds to wait for them")
+    sh.add_argument("--tour", help="only the add-on's tour of this name (Kiso.setup shots)")
+    sh.add_argument("--size", type=_size, help="only this window size, WxH (e.g. 1100x780)")
     sub.add_parser("info", help="print the add-on's folder, package, version and build file")
     t = sub.add_parser("check-tag", help="stop unless a release tag matches the version")
     t.add_argument("tag")
@@ -65,7 +76,7 @@ def main(argv=None) -> None:
         dest = args.dest or sync.default_dest(proj)
         if dest is None:
             sys.exit("No Anki add-ons folder found; pass --dest or set KISO_ADDON_DIR.")
-        out = shots.request(dest, narrow=args.narrow)
+        out = shots.request(dest, narrow=args.narrow, tour=args.tour, size=args.size)
         print("Asked Anki for screenshots (the settings open and walk every page; leave them be)...")
         result = shots.wait(dest, out, timeout=args.timeout)
         if args.out:

@@ -190,6 +190,9 @@ def test_shots_ask_only_a_dev_copy_and_keep_the_last_runs(tmp_path):
     assert json.loads((tmp_path / "DEV_SHOTS").read_text()) == {"id": "2026-09", "narrow": 640}
     assert out == tmp_path / "kiso_shots" / "2026-09"
     assert sorted(p.name for p in (tmp_path / "kiso_shots").iterdir()) == ["2026-02", "2026-03", "2026-04", "2026-05"]
+    shots.request(tmp_path, run_id="t", tour="readme", size=(1100, 780))
+    assert json.loads((tmp_path / "DEV_SHOTS").read_text()) == {"id": "t", "narrow": 800, "tour": "readme",
+                                                               "size": [1100, 780]}
 
 
 def test_shots_wait_for_done_or_say_anki_never_picked_them_up(tmp_path):

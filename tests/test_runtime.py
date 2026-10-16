@@ -155,6 +155,14 @@ def test_screenshot_names_are_plain():
     assert len(shots.slug("x" * 80)) == 40
 
 
+def test_a_run_goes_through_saved_then_narrow_or_one_size_asked_for(tmp_path):
+    run = shots.Run(None, tmp_path, None, narrow=800)
+    assert run.plan((1100, 780)) == [("saved", None), ("800px", (800, 780))]
+    assert run.plan((700, 600)) == [("saved", None)]
+    run = shots.Run(None, tmp_path, None, tour="readme", size=(960, 608))
+    assert run.plan((1100, 780)) == [("960x608", (960, 608))] and run.tour == "readme"
+
+
 def test_the_bridge_takes_screenshot_steps_only_during_a_run():
     bridge = settings.Bridge()
     assert "error" in bridge.handle('kiso:{"op": "kiso_shot", "arg": {}}')

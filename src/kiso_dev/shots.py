@@ -9,15 +9,17 @@ import json
 import shutil
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Tuple
 
 REQUEST = "DEV_SHOTS"
 OUT = "kiso_shots"   # not dev_shots: Windows names ignore case, and DEV_SHOTS is the request
 KEEP = 5   # runs kept in kiso_shots
 
 
-def request(dest: Path, narrow: int = 800, run_id: Optional[str] = None) -> Path:
-    """Leave a request in the dev copy; the folder its shots will land in."""
+def request(dest: Path, narrow: int = 800, run_id: Optional[str] = None, tour: Optional[str] = None,
+            size: Optional[Tuple[int, int]] = None) -> Path:
+    """Leave a request in the dev copy; the folder its shots will land in. `tour`: only the
+    add-on's tour of that name; `size`: only that window size (instead of saved, then narrow)."""
     if not (dest / "DEV_WATCH").exists():
         raise SystemExit(f"{dest} isn't a dev copy: run kiso sync first (and restart Anki once).")
     runs = dest / OUT
@@ -25,7 +27,12 @@ def request(dest: Path, narrow: int = 800, run_id: Optional[str] = None) -> Path
         for old in sorted((p for p in runs.iterdir() if p.is_dir()), key=lambda p: p.name)[:-(KEEP - 1) or None]:
             shutil.rmtree(old, ignore_errors=True)
     run_id = run_id or time.strftime("%Y%m%d-%H%M%S")
-    (dest / REQUEST).write_text(json.dumps({"id": run_id, "narrow": narrow}), encoding="utf-8")
+    req: dict = {"id": run_id, "narrow": narrow}
+    if tour:
+        req["tour"] = tour
+    if size:
+        req["size"] = list(size)
+    (dest / REQUEST).write_text(json.dumps(req), encoding="utf-8")
     return runs / run_id
 
 

@@ -244,14 +244,20 @@ window.askClose = () => {
 // add, delete or save. Python grabs the dialog at each step; nothing here is ever saved.
 
 Kiso.shots = {
-  async run() {
+  // only: one tour by name, alone (kiso shots --tour); a tour that isn't a page's runs only so.
+  async run(only = null) {
     const errors = [];
     const start = page;
-    for (const p of Kiso.pages) {
-      page = p.id;
-      render();
+    const tours = Kiso.options.shots || {};
+    if (only && !tours[only]) errors.push(`no tour called ${only}`);
+    const steps = !only ? Kiso.pages : tours[only] ? [Kiso.pages.find((p) => p.id === only) || { id: only, title: only }] : [];
+    for (const p of steps) {
+      if (Kiso.pages.includes(p)) {
+        page = p.id;
+        render();
+      }
       try {
-        const tour = Kiso.options.shots && Kiso.options.shots[p.id];
+        const tour = tours[p.id];
         if (tour) await tour({ shot: (label, opts) => shotPage(p, label, opts), wait: settle, page: p });
         else await shotPage(p, p.title);
       } catch (e) {
@@ -265,9 +271,12 @@ Kiso.shots = {
   },
 };
 
-// Two frames drawn, then `ms` more for what follows them (previews, fades).
+// Two frames drawn, then `ms` more for what follows them (previews, fades). A window that isn't
+// being drawn (covered by another, on Windows) gets no frames: after a second it goes on anyway.
 function settle(ms = 300) {
-  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, ms))));
+  const frames = new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const late = new Promise((resolve) => setTimeout(resolve, 1000));
+  return Promise.race([frames, late]).then(() => new Promise((resolve) => setTimeout(resolve, ms)));
 }
 
 // What scrolls: the top dialog's longest scrolling part when one is open, else the page.
@@ -282,7 +291,13 @@ function scroller() {
 }
 
 // Grabs from top to bottom, each overlapping the one before a little; numbered when there's more than one.
-async function shotPage(p, label, { wait = 700 } = {}) {
+// whole: false grabs only what shows now, scrolled as it is.
+async function shotPage(p, label, { wait = 700, whole = true } = {}) {
+  if (!whole) {
+    await settle(wait);
+    await call("kiso_shot", { page: p.id, label, part: 0 });
+    return;
+  }
   const box = scroller();
   if (box) box.scrollTop = 0;
   for (let part = 1; ; part++) {
@@ -301,7 +316,7 @@ async function shotPage(p, label, { wait = 700 } = {}) {
 // options: {prefix, pages, brand()? -> elements (atop the sidebar), footer()? -> elements (the footer's
 //           left end, drawn once; the add-on updates them itself), first?, onLoad(state)?, onChange(dirty)?,
 //           beforeRender(page)?, afterRender(page)?, onCancel()?, onSaveError(err)?, unsaved(pages)?,
-//           shots? -> {pageId: async tour} for kiso shots (above)}
+//           shots? -> {pageId or name: async tour} for kiso shots (above)}
 
 Kiso.setup = (options) => {
   Kiso.options = options;

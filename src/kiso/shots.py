@@ -5,7 +5,8 @@
 open in a fresh dialog, and the page walks every page, scrolled from top to bottom,
 running the add-on's own tour where it has one (shell.js, Kiso.shots; Kiso.setup's
 `shots`). Each step is a grab of the dialog as Qt draws it: Anki's fonts, theme and
-the user's own pictures. It runs at the dialog's saved size, then narrow. Nothing is
+the user's own pictures. It runs at the dialog's saved size, then narrow (or at one size
+asked for, and only one named tour: `kiso shots --tour NAME --size WxH`). Nothing is
 saved, the dialog closes at its saved size, and a settings window already open is left
 alone (the run refuses). The grabs land in kiso_shots/<id>/ beside the request, with
 done.json listing them and any errors.
@@ -36,7 +37,8 @@ def slug(text: Any, limit: int = 40) -> str:
 
 
 def start(mw: Any, open_settings: Optional[Callable[[], None]], request: str, base: Path, log: Any) -> "Run":
-    """Begin a run for a request's text (JSON: {"id", "narrow"?}); returns at once."""
+    """Begin a run for a request's text (JSON: {"id", "narrow"?, "tour"?, "size"?: [w, h]});
+    returns at once."""
     from aqt.qt import QTimer
 
     try:
@@ -45,17 +47,21 @@ def start(mw: Any, open_settings: Optional[Callable[[], None]], request: str, ba
         req = {}
     req = req if isinstance(req, dict) else {}
     global active
+    size = req.get("size")
     run = active = Run(open_settings, base / OUT / slug(req.get("id") or time.strftime("%Y%m%d-%H%M%S")), log,
-                       narrow=int(req.get("narrow", NARROW) or 0))
+                       narrow=int(req.get("narrow", NARROW) or 0), tour=str(req["tour"]) if req.get("tour") else None,
+                       size=(int(size[0]), int(size[1])) if isinstance(size, list) and len(size) == 2 else None)
     QTimer.singleShot(0, run.start)   # after the watch's tick: the settings may open modally
     return run
 
 
 class Run:
     def __init__(self, open_settings: Optional[Callable[[], None]], out: Path, log: Any, *,
-                 narrow: int = NARROW, timeout: float = TIMEOUT):
+                 narrow: int = NARROW, timeout: float = TIMEOUT, tour: Optional[str] = None,
+                 size: Optional[Tuple[int, int]] = None):
         self.open_settings, self.out, self.log = open_settings, out, log
         self.narrow, self.timeout = narrow, timeout
+        self.tour, self.wanted = tour, size
         self.files: List[str] = []
         self.errors: List[str] = []
         self.dlg: Any = None
@@ -94,14 +100,24 @@ class Run:
                 self.finish("no settings window opened")
             return
         self.dlg = settings.open_dialogs[-1]
+        # In front: a covered window isn't drawn, so it would grab stale frames.
+        self.dlg.raise_()
+        self.dlg.activateWindow()
         self.size = (self.dlg.width(), self.dlg.height())
-        self.sizes = [("saved", None)]
-        if self.narrow and self.size[0] > self.narrow:
-            self.sizes.append((f"{self.narrow}px", (self.narrow, self.size[1])))
+        self.sizes = self.plan(self.size)
         self.dlg.kiso_bridge.shooter = self
         ui.when_ready(self.dlg.kiso_web, "window.kisoReady === true", self.next_size,
                       still_wanted=lambda: not self.done, timeout=30,
                       on_timeout=lambda: self.finish("the settings page didn't load"))
+
+    def plan(self, saved: Tuple[int, int]) -> List[Tuple[str, Optional[Tuple[int, int]]]]:
+        """The sizes to go through: [(tag, size or None for as it is)]."""
+        if self.wanted:
+            return [(f"{self.wanted[0]}x{self.wanted[1]}", self.wanted)]
+        sizes: List[Tuple[str, Optional[Tuple[int, int]]]] = [("saved", None)]
+        if self.narrow and saved[0] > self.narrow:
+            sizes.append((f"{self.narrow}px", (self.narrow, saved[1])))
+        return sizes
 
     def next_size(self) -> None:
         from aqt.qt import QTimer
@@ -114,7 +130,8 @@ class Run:
         if size:
             self.dlg.resize(*size)
         # Time for the page to lay itself out at the new size.
-        QTimer.singleShot(500, lambda: None if self.done else self.dlg.kiso_web.eval("Kiso.shots.run()"))
+        QTimer.singleShot(500, lambda: None if self.done else self.dlg.kiso_web.eval(
+            f"Kiso.shots.run({json.dumps(self.tour)})"))
 
     def shot(self, arg: dict) -> str:
         """Grab the dialog as it is now (the page has waited for it to settle)."""

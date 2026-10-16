@@ -71,8 +71,10 @@ a fresh window and walk every page, scrolled from top to bottom, at the saved si
 800 px wide (`--narrow`); the shots land in `<dev copy>/kiso_shots/<run>/` (`--out DIR`
 copies them). An add-on can walk a page its own way with `Kiso.setup({shots: {pageId:
 async ({shot, wait}) => ...}})`, clicking through what it wants seen and calling
-`shot(label)` at each. Tours only look; nothing is saved, the window closes at its saved
-size, and a settings window already open is left alone. The first sync with a Kiso that has
+`shot(label)` at each (`shot(label, {whole: false})` grabs just what shows, unscrolled). A tour
+named for no page runs only when asked for: `kiso shots --tour NAME --size WxH` runs that one
+tour at that window size, for pictures like a README's. Tours only look; nothing is saved, the
+window closes at its saved size, and a settings window already open is left alone. The first sync with a Kiso that has
 it needs one Anki restart.
 
 Real-Anki checks use `kiso_dev.harness` (offscreen Anki, throwaway profile,
