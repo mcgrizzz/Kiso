@@ -3,15 +3,19 @@
 `kiso sync` copies an add-on into Anki's add-ons folder and leaves a DEV_WATCH
 file there. With that file present, DevWatch notices each sync and reloads the
 add-on's inner package. Real installs never have the file.
+
+It also picks up requests other dev commands leave beside it (`kiso shots` leaves
+DEV_SHOTS): each is read, removed and handed to its handler, once.
 """
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 MARKER = "DEV_WATCH"
+SHOTS = "DEV_SHOTS"   # kiso shots: screenshots of the settings (shots.py)
 WATCHED = (".py", ".js", ".css", ".html", ".json")
 
 
@@ -41,9 +45,12 @@ class DevWatch:
     holds still for a tick (a sync rewrites the whole tree; reloading mid-copy
     would import half of it)."""
 
-    def __init__(self, folder: Path, on_change: Callable[[], None]):
+    def __init__(self, folder: Path, on_change: Callable[[], None],
+                 requests: Optional[Dict[str, Callable[[str], None]]] = None):
         self.folder = folder
         self.on_change = on_change
+        # Request file name (beside the package) -> handler(its text).
+        self.requests = requests or {}
         self.stamp = source_stamp(folder)
         self.pending: Optional[Tuple[int, float]] = None
         self.timer: Any = None
@@ -56,6 +63,14 @@ class DevWatch:
         self.timer.start(every_ms)
 
     def tick(self) -> None:
+        for name, handle in self.requests.items():
+            path = self.folder.parent / name
+            try:
+                text = path.read_text(encoding="utf-8")
+                path.unlink()
+            except OSError:   # none waiting (or not readable yet: next tick)
+                continue
+            handle(text)
         stamp = source_stamp(self.folder)
         if stamp == self.stamp:
             self.pending = None

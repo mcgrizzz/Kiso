@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 import kiso
-from kiso_dev import build, bundle, cli, project, release, sync
+from kiso_dev import build, bundle, cli, project, release, shots, sync
 
 
 def make_addon(tmp_path, kiso_pin="", extra=""):
@@ -178,3 +178,33 @@ def test_pytest_bundles_kiso_before_the_add_ons_conftest_imports_it(tmp_path):
     result = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(tests)],
                             cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_shots_ask_only_a_dev_copy_and_keep_the_last_runs(tmp_path):
+    with pytest.raises(SystemExit, match="dev copy"):
+        shots.request(tmp_path)
+    (tmp_path / "DEV_WATCH").touch()
+    for n in range(6):
+        (tmp_path / "kiso_shots" / f"2026-0{n}").mkdir(parents=True)
+    out = shots.request(tmp_path, narrow=640, run_id="2026-09")
+    assert json.loads((tmp_path / "DEV_SHOTS").read_text()) == {"id": "2026-09", "narrow": 640}
+    assert out == tmp_path / "kiso_shots" / "2026-09"
+    assert sorted(p.name for p in (tmp_path / "kiso_shots").iterdir()) == ["2026-02", "2026-03", "2026-04", "2026-05"]
+
+
+def test_shots_wait_for_done_or_say_anki_never_picked_them_up(tmp_path):
+    (tmp_path / "DEV_WATCH").touch()
+    out = shots.request(tmp_path, run_id="r")
+    now = [0.0]
+    def sleep(s):
+        now[0] += s
+        if now[0] >= 2:   # Anki takes the request, then finishes
+            (tmp_path / "DEV_SHOTS").unlink(missing_ok=True)
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "done.json").write_text('{"files": ["a.png"], "errors": []}')
+    assert shots.wait(tmp_path, out, sleep=sleep, clock=lambda: now[0]) == {"files": ["a.png"], "errors": []}
+    out = shots.request(tmp_path, run_id="s")
+    now[0] = 0.0
+    with pytest.raises(SystemExit, match="didn't pick up"):
+        shots.wait(tmp_path, out, pickup=1, sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0])
+    assert not (tmp_path / "DEV_SHOTS").exists()

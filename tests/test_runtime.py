@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import aqt.qt
 
-from kiso import config, devreload, hooks, settings, toggle, ui
+from kiso import config, devreload, hooks, settings, shots, toggle, ui
 
 
 class FakeHook(list):
@@ -132,6 +132,38 @@ def test_dev_watch_waits_for_a_quiet_tick(tmp_path):
     assert fired == []
     watch.tick()                 # unchanged since: reload
     assert fired == [1]
+
+
+def test_dev_watch_hands_each_request_over_once(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "a.py").write_text("x = 1")
+    got = []
+    watch = devreload.DevWatch(pkg, lambda: None, requests={devreload.SHOTS: got.append})
+    watch.tick()
+    assert got == []
+    (tmp_path / devreload.SHOTS).write_text('{"id": "r1"}')
+    watch.tick()
+    watch.tick()
+    assert got == ['{"id": "r1"}'] and not (tmp_path / devreload.SHOTS).exists()
+
+
+def test_screenshot_names_are_plain():
+    assert shots.slug("Day & time") == "day-time"
+    assert shots.slug("Spirited Away Train · 3") == "spirited-away-train-3"
+    assert shots.slug("") == shots.slug("景色") == "shot"
+    assert len(shots.slug("x" * 80)) == 40
+
+
+def test_the_bridge_takes_screenshot_steps_only_during_a_run():
+    bridge = settings.Bridge()
+    assert "error" in bridge.handle('kiso:{"op": "kiso_shot", "arg": {}}')
+    calls = []
+    bridge.shooter = SimpleNamespace(shot=lambda arg: calls.append(("shot", arg)) or "a.png",
+                                     size_done=lambda arg: calls.append(("done", arg)))
+    assert bridge.handle('kiso:{"op": "kiso_shot", "arg": {"page": "p"}}') == "a.png"
+    bridge.handle('kiso:{"op": "kiso_shots_done", "arg": {"errors": []}}')
+    assert calls == [("shot", {"page": "p"}), ("done", {"errors": []})]
 
 
 def test_when_ready_asks_until_the_page_says_yes(monkeypatch):

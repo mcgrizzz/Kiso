@@ -5,6 +5,7 @@
     kiso build              vendor and bundle, then build dist/<folder>-<version>.ankiaddon
     kiso audit              pip-audit the vendored lockfile (pip-audit must be installed)
     kiso sync [--watch]     bundle, then copy into Anki's add-ons folder for live reload
+    kiso shots [--out DIR]  screenshots of the settings in the running Anki (a synced dev copy), every page
     kiso info               the add-on's folder, package, version and build file, as key=value lines
     kiso check-tag TAG      stop unless TAG is v<version>, for release workflows
 """
@@ -12,10 +13,11 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
-from . import build, bundle, project, release, sync, vendor
+from . import build, bundle, project, release, shots, sync, vendor
 
 
 def main(argv=None) -> None:
@@ -30,6 +32,11 @@ def main(argv=None) -> None:
     s = sub.add_parser("sync", help="copy into Anki's add-ons folder")
     s.add_argument("--dest", type=Path, help="the installed add-on folder (default: found automatically)")
     s.add_argument("--watch", action="store_true", help="stay running and sync on every change")
+    sh = sub.add_parser("shots", help="screenshots of the settings in the running Anki")
+    sh.add_argument("--dest", type=Path, help="the installed add-on folder (default: found automatically)")
+    sh.add_argument("--out", type=Path, help="also copy the screenshots here")
+    sh.add_argument("--narrow", type=int, default=800, help="the narrow width in px (0: the saved size only)")
+    sh.add_argument("--timeout", type=float, default=360, help="seconds to wait for them")
     sub.add_parser("info", help="print the add-on's folder, package, version and build file")
     t = sub.add_parser("check-tag", help="stop unless a release tag matches the version")
     t.add_argument("tag")
@@ -54,6 +61,25 @@ def main(argv=None) -> None:
             print(f"{key}={value}")
     elif args.command == "check-tag":
         print(f"{args.tag} matches version {release.check_tag(proj, args.tag)}")
+    elif args.command == "shots":
+        dest = args.dest or sync.default_dest(proj)
+        if dest is None:
+            sys.exit("No Anki add-ons folder found; pass --dest or set KISO_ADDON_DIR.")
+        out = shots.request(dest, narrow=args.narrow)
+        print("Asked Anki for screenshots (the settings open and walk every page; leave them be)...")
+        result = shots.wait(dest, out, timeout=args.timeout)
+        if args.out:
+            args.out.mkdir(parents=True, exist_ok=True)
+            for name in result["files"]:
+                shutil.copy2(out / name, args.out / name)
+        where = args.out or out
+        for name in result["files"]:
+            print(where / name)
+        for error in result["errors"]:
+            print("error:", error, file=sys.stderr)
+        print(f"{len(result['files'])} screenshots in {where}")
+        if result["errors"] and not result["files"]:
+            sys.exit(1)
     elif args.command == "sync":
         dest = args.dest or sync.default_dest(proj)
         if dest is None:

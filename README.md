@@ -62,7 +62,18 @@ kiso bundle            # copy Kiso into myaddon/_kiso/ (pytest and the commands 
 kiso sync --watch      # copy into Anki's add-ons folder; a running Anki reloads on each change
 kiso build             # dist/<folder>-<version>.ankiaddon
 kiso vendor            # bundled libraries into lib/shared (kiso audit: pip-audit them)
+kiso shots             # screenshots of the settings in the running Anki (see below)
 ```
+
+`kiso shots` asks the running Anki (a synced dev copy) for screenshots of the add-on's
+settings as Anki shows them: its fonts, theme and the user's own data. The settings open in
+a fresh window and walk every page, scrolled from top to bottom, at the saved size and
+800 px wide (`--narrow`); the shots land in `<dev copy>/kiso_shots/<run>/` (`--out DIR`
+copies them). An add-on can walk a page its own way with `Kiso.setup({shots: {pageId:
+async ({shot, wait}) => ...}})`, clicking through what it wants seen and calling
+`shot(label)` at each. Tours only look; nothing is saved, the window closes at its saved
+size, and a settings window already open is left alone. The first sync with a Kiso that has
+it needs one Anki restart.
 
 Real-Anki checks use `kiso_dev.harness` (offscreen Anki, throwaway profile,
 the add-on installed through its real root `__init__.py`). The pytest plugin
@@ -126,6 +137,7 @@ below fills in its form.
 | `settings` | `Bridge`, `make_dialog`, `page_html`, and the page shell in `web/` |
 | `ui` | `rebuild_main_window` after a reload changes what goes into pages; `when_ready` waits for a page condition |
 | `vendor` | Bundled libraries at run time: `add_to_path`, `find_clashes`, `refusal` |
+| `shots` | `kiso shots` inside Anki: screenshots of the settings, page by page |
 | `logs`, `toggle`, `devreload` | The parts `Addon` is built from |
 
 ## AnkiWeb upload helper

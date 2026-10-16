@@ -16,6 +16,8 @@
 - `on_toggle(addon, enabled)` runs when the add-on is turned off or on in Tools > Add-ons.
 - `web_exports` is the pattern of files Anki's media server may serve from the add-on. Pass a
   function that reads it from the inner package, and a reload registers the new code's pattern.
+- In a dev copy (`kiso sync`), the dev watch reloads on each sync and answers `kiso shots`
+  (screenshots of the settings, as Anki shows them: shots.py).
 
 Every callback is guarded: a failure is logged to the add-on's log file and the
 rest keeps working. Callbacks should import the add-on's own modules inside
@@ -127,9 +129,17 @@ class Addon:
             self.log.exception("Couldn't attach Anki's add-on log")
         self._config()
         if self.watch is None and (self.base / devreload.MARKER).exists():
-            self.watch = devreload.DevWatch(self.base / self.inner, self._reload_from_watch)
+            self.watch = devreload.DevWatch(self.base / self.inner, self._reload_from_watch,
+                                            requests={devreload.SHOTS: guard(self._shots, self.log, "Screenshots")})
             self.watch.start(self.mw)
             self.log.info("Dev watch active")
+
+    def _shots(self, request: str) -> None:
+        # The module as it is now: a reload since this watch started may have changed it.
+        import importlib
+
+        shots = importlib.import_module(__package__ + ".shots")
+        shots.start(self.mw, self._settings, request, self.base, self.log)
 
     # -- reload ------------------------------------------------------------
 

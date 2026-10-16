@@ -14,9 +14,11 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional, Tuple
+from typing import Any, Callable, Iterable, List, Optional, Tuple
 
 WEB = Path(__file__).resolve().parent / "web"
+# The settings dialogs open now (kiso shots finds its dialog here, and won't touch one already open).
+open_dialogs: List[Any] = []
 
 
 def page_html(css: Iterable[str] = (), js: Iterable[str] = ()) -> str:
@@ -38,6 +40,7 @@ class Bridge:
     op_dirty and op_close; the add-on adds the rest."""
 
     prefix = "kiso:"
+    shooter: Any = None   # a kiso shots run that has this dialog (shots.py), while it lasts
 
     def __init__(self, *, close: Optional[Callable[[], None]] = None):
         self.close = close   # make_dialog fills it in when left out
@@ -55,6 +58,16 @@ class Bridge:
 
     def op_dirty(self, value) -> None:
         self.dirty = bool(value)
+
+    # kiso shots (dev only): the page asks for a grab at each step, then says when it's done.
+    def op_kiso_shot(self, arg) -> str:
+        if self.shooter is None:
+            raise RuntimeError("no screenshot run has this window")
+        return self.shooter.shot(arg or {})
+
+    def op_kiso_shots_done(self, arg) -> None:
+        if self.shooter is not None:
+            self.shooter.size_done(arg or {})
 
     def op_close(self, _arg) -> None:
         self.dirty = False
@@ -92,8 +105,11 @@ def make_dialog(mw: Any, *, title: str, html: str, bridge: Callable[[Any, Any], 
         dlg.kiso_bridge.close = lambda: QTimer.singleShot(0, dlg.accept)
     web.set_bridge_command(dlg.kiso_bridge.handle, dlg)
     web.stdHtml(html, context=dlg)
+    open_dialogs.append(dlg)
 
     def finished(_result):
+        if dlg in open_dialogs:
+            open_dialogs.remove(dlg)
         saveGeom(dlg, geom_key)
         if on_finished:
             on_finished()

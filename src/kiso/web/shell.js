@@ -236,10 +236,72 @@ window.askClose = () => {
                     onclick: async () => { if (await save()) call("close"); } }, "Save"))));
 };
 
+// -- screenshots (kiso shots, dev only: shots.py) -------------------------------
+// Python resizes the dialog and calls Kiso.shots.run(): every page in turn, each grabbed from
+// top to bottom (shot), or walked by the add-on's own tour for it: options.shots[pageId], an
+// async function given { shot(label, {wait}?), wait(ms), page } that clicks through what it
+// wants seen (each scene, a dialog) and calls shot() at each. Tours only look: they never
+// add, delete or save. Python grabs the dialog at each step; nothing here is ever saved.
+
+Kiso.shots = {
+  async run() {
+    const errors = [];
+    const start = page;
+    for (const p of Kiso.pages) {
+      page = p.id;
+      render();
+      try {
+        const tour = Kiso.options.shots && Kiso.options.shots[p.id];
+        if (tour) await tour({ shot: (label, opts) => shotPage(p, label, opts), wait: settle, page: p });
+        else await shotPage(p, p.title);
+      } catch (e) {
+        errors.push(`${p.id}: ${(e && e.message) || e}`);
+      }
+      while (document.getElementById("modal").firstChild) closeModal();
+    }
+    page = start;
+    render();
+    call("kiso_shots_done", { errors });
+  },
+};
+
+// Two frames drawn, then `ms` more for what follows them (previews, fades).
+function settle(ms = 300) {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, ms))));
+}
+
+// What scrolls: the top dialog's longest scrolling part when one is open, else the page.
+function scroller() {
+  const top = document.getElementById("modal").lastElementChild;
+  if (top) {
+    const parts = [top, ...top.querySelectorAll("*")].filter((el) => el.scrollHeight > el.clientHeight + 2
+      && /(auto|scroll)/.test(getComputedStyle(el).overflowY));
+    return parts.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))[0] || null;
+  }
+  return document.getElementById("main");
+}
+
+// Grabs from top to bottom, each overlapping the one before a little; numbered when there's more than one.
+async function shotPage(p, label, { wait = 700 } = {}) {
+  const box = scroller();
+  if (box) box.scrollTop = 0;
+  for (let part = 1; ; part++) {
+    await settle(part === 1 ? wait : 250);
+    const more = !!box && box.scrollTop + box.clientHeight < box.scrollHeight - 2;
+    await call("kiso_shot", { page: p.id, label, part: more || part > 1 ? part : 0 });
+    if (!more) break;
+    const before = box.scrollTop;
+    box.scrollTop += Math.round(box.clientHeight * 0.85);
+    if (box.scrollTop === before) break;
+  }
+  if (box) box.scrollTop = 0;
+}
+
 // -- start --------------------------------------------------------------------
 // options: {prefix, pages, brand()? -> elements (atop the sidebar), footer()? -> elements (the footer's
 //           left end, drawn once; the add-on updates them itself), first?, onLoad(state)?, onChange(dirty)?,
-//           beforeRender(page)?, afterRender(page)?, onCancel()?, onSaveError(err)?, unsaved(pages)?}
+//           beforeRender(page)?, afterRender(page)?, onCancel()?, onSaveError(err)?, unsaved(pages)?,
+//           shots? -> {pageId: async tour} for kiso shots (above)}
 
 Kiso.setup = (options) => {
   Kiso.options = options;
