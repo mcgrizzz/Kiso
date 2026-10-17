@@ -86,8 +86,9 @@ add-on in `checks/`: `python checks/check_runtime.py`.
 ## GitHub Actions
 
 An add-on repo needs two short workflows. CI runs ruff and the tests on the newest Anki and on
-the oldest the add-on supports, then the real-Anki checks and the build (kept as a download
-on the run):
+the oldest the add-on supports, then the real-Anki checks on Linux and Windows (some native
+crashes only happen on Windows; `qt-checks-windows: false` skips it), and the build (kept as a
+download on the run):
 
 ```yaml
 # .github/workflows/ci.yml
@@ -133,7 +134,8 @@ below fills in its form.
 
 | Module | For |
 | --- | --- |
-| `addon` | `Addon`: config action, Tools menu, log file, add-on switch, dev watch, `reload()` |
+| `addon` | `Addon`: config action, Tools menu, log file, add-on switch, dev watch, `reload()`, crash guard |
+| `crashguard` | A start that crashed Anki outright (native code, nothing to catch) isn't run again until its code changes: the next launch leaves the add-on off, offers to start it, and logs the crash's stack from Anki's `crash.log` |
 | `hooks` | `guard`, `Subscriptions`: hook callbacks and timers (repeating, debounced) that log instead of raising and come off on reload |
 | `config` | `migrate`, `fill`, `load`: defaults and versioned migration steps |
 | `settings` | `Bridge`, `make_dialog`, `page_html`, and the page shell in `web/` |

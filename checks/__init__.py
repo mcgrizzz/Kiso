@@ -7,8 +7,17 @@ except ImportError:   # imported outside Anki
 
 addon = None
 
+
+def _start():
+    import os
+    if os.environ.get("KISO_CHECK_CRASH_ON_START"):   # check_crash.py: a start that crashes Anki
+        import faulthandler
+        faulthandler._sigsegv()   # a real segfault, as a broken Qt call gives (ctypes would catch one on Windows)
+    return None
+
+
 if mw is not None:
     from .fixture._kiso.addon import Addon
 
-    addon = Addon(__name__, inner="fixture", start=lambda: None)
+    addon = Addon(__name__, inner="fixture", start=_start)
     addon.install()

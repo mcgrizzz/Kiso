@@ -16,6 +16,7 @@ and anything it writes (user_files) lands there, not in the repo.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shutil
 import sys
@@ -67,6 +68,17 @@ def js(app, web, code, seconds=10):
     return out[0]
 
 
+def close_logs(base: Path) -> None:
+    """Close the log files Anki opened in the temporary profile, so it can be deleted."""
+    import logging
+
+    for logger in [logging.getLogger(), *logging.Logger.manager.loggerDict.values()]:
+        for handler in list(getattr(logger, "handlers", [])):
+            if isinstance(handler, logging.FileHandler) and Path(handler.baseFilename).resolve().is_relative_to(base.resolve()):
+                handler.close()
+                logger.removeHandler(handler)
+
+
 def addon():
     """The running add-on's root module."""
     return sys.modules[PROJECT.addon_folder]
@@ -94,15 +106,21 @@ def run(check, description, profile="KisoCheck", size=(1280, 800)):
     if args.screenshots:
         args.screenshots.mkdir(parents=True, exist_ok=True)
     PROJECT = find(Path(sys.argv[0]).resolve().parent)
-    with tempfile.TemporaryDirectory(prefix="kiso-qt-") as base:
-        install_copy(PROJECT, Path(base) / "addons21")
-        pm = ProfileManager(Path(base))
-        pm.setupMeta()
-        pm.create(profile)
-        pm.openProfile(profile)
-        pm.meta["defaultLang"] = "en_US"
-        pm.save()
-        pm.db.close()
+    # KISO_CHECK_BASE keeps the Anki folder between runs (a check of what one launch leaves for
+    # the next): set up the first time, used as it is after that.
+    kept = os.environ.get("KISO_CHECK_BASE")
+    # On Windows a file still open can't be deleted: a leftover temp folder isn't a failure.
+    with (contextlib.nullcontext(kept) if kept else
+          tempfile.TemporaryDirectory(prefix="kiso-qt-", ignore_cleanup_errors=True)) as base:
+        if not (Path(base) / "addons21" / PROJECT.addon_folder).exists():
+            install_copy(PROJECT, Path(base) / "addons21")
+            pm = ProfileManager(Path(base))
+            pm.setupMeta()
+            pm.create(profile)
+            pm.openProfile(profile)
+            pm.meta["defaultLang"] = "en_US"
+            pm.save()
+            pm.db.close()
         # Bypass IPC so this process cannot signal another Anki instance.
         aqt.AnkiApp.secondInstance = lambda self: False
         app = aqt._run(["anki", "-b", base, "-p", profile, "-l", "en"], exec=False)
@@ -128,6 +146,7 @@ def run(check, description, profile="KisoCheck", size=(1280, 800)):
                 aqt.mw.close()
                 until(app, lambda: sip.isdeleted(aqt.mw), 30)
             sys.excepthook = original_hook
+            close_logs(Path(base))
     print("PASS: Anki shut down cleanly.", flush=True)
     for notice in notices.notices:
         print("Anki deprecation notice " + notices.describe(notice), flush=True)

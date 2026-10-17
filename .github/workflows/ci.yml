@@ -1,7 +1,8 @@
 name: CI
 
 # Kiso itself: lint and tests on the newest Anki and on the oldest Kiso supports, and the
-# real-Anki check on its stand-in add-on. The setup action is used from this checkout.
+# real-Anki checks on its stand-in add-on, on Linux and Windows (some crashes are Windows-only).
+# The setup action is used from this checkout.
 
 on:
   push:
@@ -38,14 +39,22 @@ jobs:
       - run: python -m pytest -q
 
   qt-checks:
-    name: Real-Anki check
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    name: Real-Anki checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
     env:
       KISO_STRICT_ANKI_NOTICES: "1"
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: ./
       - run: python checks/check_runtime.py
+      - run: python checks/check_crash.py

@@ -114,6 +114,44 @@ def check_reload(app):
     until(app, lambda: "later" in hits and gave_up, 5, "wait_until never answered")
     assert hits == ["now", "later"]
     print("PASS: wait_until answers at once, after main-thread work, or gives up (a raising check counts as not yet).")
+    check_crash_guard(app)
+
+
+def check_crash_guard(app):
+    from kisocheck.fixture._kiso import crashguard
+    from kisocheck.fixture._kiso.addon import Addon
+
+    starts = []
+    addon = Addon("kisocheck", inner="fixture", start=lambda: starts.append(1) or len(starts))
+    mark = addon.base / crashguard.MARK
+    code = crashguard.fingerprint([addon.base / "fixture"], [addon.base / "__init__.py"])
+    # Starting leaves the mark; it goes once the start has settled.
+    crashguard.SETTLE_MS = 300
+    addon.start()
+    assert starts == [1] and mark.read_text().startswith(code)
+    until(app, lambda: not mark.exists(), 5, "the mark stayed after the start settled")
+    # An earlier Anki that ended while this code was starting: not started, and the reload says so.
+    mark.write_text(f"{code} 1")
+    addon.start()
+    assert starts == [1] and addon.held_back and addon.feature is None
+    assert "didn't start" in addon.reload(), "a held-back reload claimed to have started"
+    # Started anyway from the notice.
+    import aqt.utils
+    asked, ask = [], aqt.utils.askUser
+    aqt.utils.askUser = lambda text, **kw: asked.append(text) or True
+    try:
+        addon._offer_start()
+    finally:
+        aqt.utils.askUser = ask
+    assert "closed Anki unexpectedly" in asked[0] and starts == [1, 1] and not addon.held_back
+    until(app, lambda: not mark.exists(), 5)
+    # New code (an update, a sync) starts as usual.
+    mark.write_text(f"{code} 1")
+    (addon.base / "fixture" / "new_code.py").write_text("X = 1\n")
+    addon.start()
+    assert len(starts) == 3 and not addon.held_back
+    until(app, lambda: not mark.exists(), 5)
+    print("PASS: a start that crashed Anki isn't run again with the same code: the next launch offers it, new code starts.")
 
 
 if __name__ == "__main__":

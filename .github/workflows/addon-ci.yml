@@ -1,8 +1,9 @@
 name: Add-on CI
 
 # For an Anki add-on built on Kiso: lint, tests (on the newest Anki, and on the oldest the
-# add-on supports when floor-anki is given), the add-on's real-Anki checks, the build, and an
-# audit of its vendored libraries when [tool.kiso] has a vendor lockfile.
+# add-on supports when floor-anki is given), the add-on's real-Anki checks (on Linux and on
+# Windows, where some crashes happen that Linux never shows), the build, and an audit of its
+# vendored libraries when [tool.kiso] has a vendor lockfile.
 #
 #   jobs:
 #     ci:
@@ -44,6 +45,10 @@ on:
         description: More packages the tests and checks need, space-separated, e.g. "httpx hypothesis".
         type: string
         default: ""
+      qt-checks-windows:
+        description: Run the real-Anki checks on Windows too (in bash there, as on Linux).
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -80,12 +85,19 @@ jobs:
         run: ${{ inputs.tests }}
 
   qt-checks:
-    name: Real-Anki checks
+    name: Real-Anki checks (${{ matrix.os }})
     if: inputs.qt-checks != ''
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.qt-checks-windows && '["ubuntu-24.04","windows-2025"]' || '["ubuntu-24.04"]') }}
     env:
       KISO_STRICT_ANKI_NOTICES: "1"
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:

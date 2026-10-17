@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import aqt.qt
 
-from kiso import config, devreload, hooks, settings, shots, toggle, ui
+from kiso import config, crashguard, devreload, hooks, settings, shots, toggle, ui
 
 
 class FakeHook(list):
@@ -204,3 +204,43 @@ def test_rebuild_reloads_the_toolbar_and_a_main_screen_only():
     mw.state = "profileManager"
     ui.rebuild_main_window(mw)
     assert calls == ["toolbar", "overview", "toolbar"]
+
+
+def test_the_fingerprint_follows_the_code_only(tmp_path):
+    pkg = tmp_path / "inner"
+    (pkg / "web").mkdir(parents=True)
+    (pkg / "a.py").write_text("A = 1\n")
+    (pkg / "web" / "page.js").write_text("1")
+    (pkg / "data.json").write_text("{}")
+    print_ = crashguard.fingerprint([pkg])
+    (pkg / "data.json").write_text('{"changed": true}')   # not code
+    (pkg / "__pycache__").mkdir()
+    (pkg / "__pycache__" / "a.py").write_text("")
+    assert crashguard.fingerprint([pkg]) == print_
+    (pkg / "web" / "page.js").write_text("22")
+    assert crashguard.fingerprint([pkg]) != print_
+
+
+def test_the_guard_remembers_only_an_earlier_launchs_start(tmp_path):
+    guard = crashguard.Guard(tmp_path)
+    assert not guard.crashed_before("code")
+    token = guard.starting("code")
+    assert not guard.crashed_before("code")   # this launch's own start, still settling
+    (tmp_path / crashguard.MARK).write_text("code 1")   # an earlier launch that ended mid-start
+    assert guard.crashed_before("code") and not guard.crashed_before("new code")
+    guard.settled(token - 1)   # a start since: not this one's to clear
+    assert (tmp_path / crashguard.MARK).exists()
+    guard.settled(token)
+    assert not (tmp_path / crashguard.MARK).exists()
+
+
+def test_the_last_crash_is_the_thread_that_crashed(tmp_path):
+    (tmp_path / "crash.log").write_text(
+        "Fatal Python error: Segmentation fault\n\nCurrent thread 0x1 (most recent call first):\n  File \"old.py\"\n\n"
+        "Windows fatal exception: access violation\n\nThread 0x2 (most recent call first):\n  File \"other.py\"\n\n"
+        "Current thread 0x3 (most recent call first):\n  File \"addon.py\", line 9 in start\n  File \"main.py\"\n\n"
+        "Extension modules: x\n")
+    got = crashguard.last_crash(tmp_path)
+    assert "addon.py" in got and "main.py" in got and "old.py" not in got and "other.py" not in got
+    assert "Extension" not in got
+    assert "can't be read" in crashguard.last_crash(tmp_path / "missing")
