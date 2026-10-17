@@ -98,6 +98,15 @@ def install_copy(project, addons: Path) -> Path:
     return dest
 
 
+def save_failure_shots(folder: Path, name: str) -> None:
+    """Every window open when a check failed, as it looked then (CI keeps them: KISO_FAILURE_SHOTS)."""
+    from aqt.qt import QApplication
+
+    folder.mkdir(parents=True, exist_ok=True)
+    for i, window in enumerate(w for w in QApplication.topLevelWidgets() if w.isVisible()):
+        window.grab().save(str(folder / f"{name}-{i:02}-{type(window).__name__}.png"))
+
+
 def run(check, description, profile="KisoCheck", size=(1280, 800)):
     global PROJECT
     parser = argparse.ArgumentParser(description=description)
@@ -138,7 +147,13 @@ def run(check, description, profile="KisoCheck", size=(1280, 800)):
             notices.install(lambda: "real Anki")   # again, for modules Anki and the add-on loaded since
             aqt.mw.resize(*size)
             pump(app, 0.5)
-            check(app, args.screenshots, Path(base))
+            try:
+                check(app, args.screenshots, Path(base))
+            except BaseException:
+                if os.environ.get("KISO_FAILURE_SHOTS"):
+                    with contextlib.suppress(Exception):
+                        save_failure_shots(Path(os.environ["KISO_FAILURE_SHOTS"]), Path(sys.argv[0]).stem)
+                raise
             assert not errors, errors
             pump(app, 1)   # let Anki's queued page refreshes finish before the collection closes
         finally:

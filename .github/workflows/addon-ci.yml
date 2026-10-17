@@ -111,7 +111,16 @@ jobs:
           PACKAGES: ${{ inputs.test-packages }}
         run: python -m pip install -q $PACKAGES
       - name: Checks
+        env:
+          KISO_FAILURE_SHOTS: ${{ runner.temp }}/failure-shots   # a failed check's windows, as they looked
         run: ${{ inputs.qt-checks }}
+      - name: Keep the failed checks' screenshots
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: failure-shots-${{ matrix.os }}
+          path: ${{ runner.temp }}/failure-shots
+          if-no-files-found: ignore
 
   audit:
     name: Audit vendored libraries
