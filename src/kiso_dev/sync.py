@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import vendor
+from .build import manifest
 from .bundle import SOURCE as KISO_SOURCE
 from .bundle import bundle
 from .project import Project
@@ -65,7 +66,9 @@ def sync(project: Project, dest: Path, include: bool = True) -> None:
         if folder.is_dir() and not _same(_stamp(folder), _stamp(dest / folder.name)):
             _copy_tree(folder, dest / folder.name)
     for name in project.root_files:
-        if (project.root / name).exists():
+        if name == "manifest.json":
+            (dest / name).write_bytes(manifest(project))   # with the version, as a build has it
+        elif (project.root / name).exists():
             shutil.copy2(project.root / name, dest / name)
     (dest / "DEV_WATCH").touch()
     _name_dev_copy(project, dest)

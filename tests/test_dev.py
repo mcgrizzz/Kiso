@@ -60,6 +60,17 @@ def test_build_packs_the_addon_with_kiso_and_without_local_state(tmp_path):
     assert not any("__pycache__" in n or n == "meta.json" for n in names)
     first = out.read_bytes()
     assert build.build(proj).read_bytes() == first   # unchanged tree, byte-identical archive
+    packed = json.loads(zipfile.ZipFile(out).read("manifest.json"))
+    assert packed == {"package": "demo", "name": "Demo", "human_version": "1.2.3"}
+    assert "human_version" not in json.loads((tmp_path / "manifest.json").read_text())   # the source stays as it is
+
+
+def test_sync_marks_the_version_in_the_copy_s_manifest(tmp_path):
+    (tmp_path / "src").mkdir()
+    proj = make_addon(tmp_path / "src")
+    dest = tmp_path / "addons21" / "demo"
+    sync.sync(proj, dest)
+    assert json.loads((dest / "manifest.json").read_text())["human_version"] == "1.2.3"
 
 
 def test_info_names_the_build_file(tmp_path, monkeypatch, capsys):

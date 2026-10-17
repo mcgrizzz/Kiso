@@ -27,6 +27,14 @@ def files(project: Project):
             yield path
 
 
+def manifest(project: Project) -> bytes:
+    """manifest.json with the project's version as "human_version": Anki keeps it in the add-on's
+    meta, and the add-on can read it from the file to show which version is running."""
+    data = json.loads((project.root / "manifest.json").read_text(encoding="utf-8"))
+    data["human_version"] = project.version
+    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
 def validate(path: Path, project: Project) -> None:
     """Refuse an archive Anki would choke on or that leaks local state."""
     with zipfile.ZipFile(path) as zf:
@@ -65,7 +73,7 @@ def build(project: Project, offline: bool = False) -> Path:
             info = zipfile.ZipInfo(path.relative_to(project.root).as_posix(), date_time=(1980, 1, 1, 0, 0, 0))
             info.external_attr = 0o644 << 16
             info.compress_type = zipfile.ZIP_DEFLATED
-            zf.writestr(info, path.read_bytes())
+            zf.writestr(info, manifest(project) if path == project.root / "manifest.json" else path.read_bytes())
     validate(tmp, project)
     tmp.replace(out)
     out.with_name(out.name + ".sha256").write_text(f"{hashlib.sha256(out.read_bytes()).hexdigest()}  {out.name}\n")
